@@ -420,23 +420,25 @@ class MovimientoInventarioController extends Controller
         foreach ($detalles as $detalle) {
             $producto_id = $detalle['producto_id'];
             $cantidad = $detalle['cantidad'];
+            $costo_unitario = $detalle['costo_unitario'] ?? 0;
 
             switch ($movimiento->tipo) {
                 case 'entrada':
-                    // Aumentar stock en bodega destino
-                    $this->actualizarStockBodega($producto_id, $movimiento->bodega_destino_id, $cantidad, 'aumentar');
+                    // Aumentar stock en bodega destino con costo
+                    $this->actualizarStockBodega($producto_id, $movimiento->bodega_destino_id, $cantidad, 'aumentar', $costo_unitario);
                     break;
 
                 case 'salida':
-                    // Disminuir stock en bodega origen
+                    // Disminuir stock en bodega origen (sin afectar costo promedio)
                     $this->actualizarStockBodega($producto_id, $movimiento->bodega_origen_id, $cantidad, 'disminuir');
                     break;
 
                 case 'transferencia':
-                    // Disminuir stock en bodega origen
+                    // Disminuir stock en bodega origen (sin afectar costo promedio)
                     $this->actualizarStockBodega($producto_id, $movimiento->bodega_origen_id, $cantidad, 'disminuir');
-                    // Aumentar stock en bodega destino
-                    $this->actualizarStockBodega($producto_id, $movimiento->bodega_destino_id, $cantidad, 'aumentar');
+                    // Aumentar stock en bodega destino manteniendo costo promedio del origen
+                    $costoOrigen = $this->obtenerCostoPromedio($producto_id, $movimiento->bodega_origen_id);
+                    $this->actualizarStockBodega($producto_id, $movimiento->bodega_destino_id, $cantidad, 'aumentar', $costoOrigen);
                     break;
 
                 case 'ajuste':
@@ -444,7 +446,8 @@ class MovimientoInventarioController extends Controller
                     $operacion = $cantidad >= 0 ? 'aumentar' : 'disminuir';
                     $cantidad_abs = abs($cantidad);
                     $bodega_id = $movimiento->bodega_destino_id ?: $movimiento->bodega_origen_id;
-                    $this->actualizarStockBodega($producto_id, $bodega_id, $cantidad_abs, $operacion);
+                    // En ajustes, usar costo unitario si se proporciona
+                    $this->actualizarStockBodega($producto_id, $bodega_id, $cantidad_abs, $operacion, $costo_unitario);
                     break;
             }
         }
@@ -453,7 +456,7 @@ class MovimientoInventarioController extends Controller
     /**
      * Actualiza el stock de un producto en una bodega específica
      */
-    private function actualizarStockBodega($producto_id, $bodega_id, $cantidad, $operacion)
+    private function actualizarStockBodega($producto_id, $bodega_id, $cantidad, $operacion, $costo_unitario = null)
     {
         // Verificar si existe la existencia
         $existencia = \App\Models\Existencia::where('producto_id', $producto_id)
@@ -470,11 +473,33 @@ class MovimientoInventarioController extends Controller
             $existencia->save();
         }
 
-        // Actualizar cantidad
+        $cantidadAnterior = $existencia->cantidad;
+        $costoAnterior = $existencia->costo_promedio;
+        
+        // Calcular nueva cantidad
         if ($operacion === 'aumentar') {
-            $nuevaCantidad = $existencia->cantidad + $cantidad;
+            $nuevaCantidad = $cantidadAnterior + $cantidad;
+            
+            // Calcular nuevo costo promedio ponderado solo si hay costo unitario
+            if ($costo_unitario !== null && $costo_unitario > 0) {
+                if ($cantidadAnterior > 0) {
+                    // Costo promedio ponderado: ((cantidad_anterior * costo_anterior) + (cantidad_nueva * costo_nuevo)) / cantidad_total
+                    $valorAnterior = $cantidadAnterior * $costoAnterior;
+                    $valorNuevo = $cantidad * $costo_unitario;
+                    $nuevoCostoPromedio = ($valorAnterior + $valorNuevo) / $nuevaCantidad;
+                } else {
+                    // Si no había existencias previas, el nuevo costo es el costo unitario
+                    $nuevoCostoPromedio = $costo_unitario;
+                }
+            } else {
+                // Si no hay costo unitario, mantener el costo promedio anterior
+                $nuevoCostoPromedio = $costoAnterior;
+            }
         } else {
-            $nuevaCantidad = $existencia->cantidad - $cantidad;
+            // Para operaciones de disminución, no cambiar el costo promedio
+            $nuevaCantidad = $cantidadAnterior - $cantidad;
+            $nuevoCostoPromedio = $costoAnterior;
+            
             // Evitar cantidades negativas
             if ($nuevaCantidad < 0) {
                 $nuevaCantidad = 0;
@@ -484,6 +509,21 @@ class MovimientoInventarioController extends Controller
         // Actualizar usando consulta directa para evitar problemas con clave primaria compuesta
         \App\Models\Existencia::where('producto_id', $producto_id)
             ->where('bodega_id', $bodega_id)
-            ->update(['cantidad' => $nuevaCantidad]);
+            ->update([
+                'cantidad' => $nuevaCantidad,
+                'costo_promedio' => $nuevoCostoPromedio
+            ]);
+    }
+
+    /**
+     * Obtiene el costo promedio de un producto en una bodega específica
+     */
+    private function obtenerCostoPromedio($producto_id, $bodega_id)
+    {
+        $existencia = \App\Models\Existencia::where('producto_id', $producto_id)
+            ->where('bodega_id', $bodega_id)
+            ->first();
+            
+        return $existencia ? $existencia->costo_promedio : 0;
     }
 }
