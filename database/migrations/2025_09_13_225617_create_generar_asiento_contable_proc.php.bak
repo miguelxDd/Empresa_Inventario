@@ -1,0 +1,145 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Support\Facades\DB;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        DB::unprepared("CREATE DEFINER=`root`@`localhost` PROCEDURE `generar_asiento_contable`(
+    IN p_movimiento_id BIGINT UNSIGNED
+)
+BEGIN
+    DECLARE v_fecha DATE;
+    DECLARE v_tipo VARCHAR(20);
+    DECLARE v_estado VARCHAR(20);
+    DECLARE v_referencia VARCHAR(100);
+    DECLARE v_created_by BIGINT;
+    DECLARE v_asiento_id BIGINT;
+    DECLARE v_msg TEXT;
+
+    -- Cursor de detalles
+    DECLARE v_detalle_id BIGINT;
+    DECLARE v_producto_id BIGINT;
+    DECLARE v_categoria_id BIGINT;
+    DECLARE v_total DECIMAL(15,4);
+    DECLARE v_cuenta_debe BIGINT;
+    DECLARE v_cuenta_haber BIGINT;
+    DECLARE done INT DEFAULT 0;
+
+    DECLARE cur_det CURSOR FOR
+        SELECT d.id, d.producto_id, p.categoria_id, d.total
+          FROM movimiento_detalles d
+          JOIN productos p ON p.id = d.producto_id
+         WHERE d.movimiento_id = p_movimiento_id;
+
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
+
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        RESIGNAL;
+    END;
+
+    START TRANSACTION;
+
+    -- Datos del movimiento (bloqueo por seguridad)
+    SELECT fecha, tipo, estado, referencia, created_by
+      INTO v_fecha, v_tipo, v_estado, v_referencia, v_created_by
+      FROM movimientos 
+     WHERE id = p_movimiento_id
+     FOR UPDATE;
+
+    -- Encabezado provisional
+    INSERT INTO asientos(fecha, numero, descripcion, origen_tabla, origen_id, estado, total_debe, total_haber, created_by)
+    VALUES (
+        v_fecha,
+        'PEND',
+        CONCAT('Asiento por ', v_tipo, ' de inventario #', p_movimiento_id,
+               IFNULL(CONCAT(' (', v_referencia, ')'),'')
+        ),
+        'movimientos',
+        p_movimiento_id,
+        'borrador',
+        0, 0,
+        v_created_by
+    );
+    SET v_asiento_id = LAST_INSERT_ID();
+
+    -- Recorrer detalles y aplicar regla
+    OPEN cur_det;
+    read_loop: LOOP
+        FETCH cur_det INTO v_detalle_id, v_producto_id, v_categoria_id, v_total;
+        IF done = 1 THEN LEAVE read_loop; END IF;
+
+        -- Regla por prioridad
+        SELECT rc.cuenta_debe_id, rc.cuenta_haber_id
+          INTO v_cuenta_debe, v_cuenta_haber
+          FROM reglas_contables rc
+         WHERE rc.tipo_movimiento = v_tipo
+           AND rc.activa = 1
+           AND (
+                rc.producto_id = v_producto_id OR
+                rc.categoria_producto_id = v_categoria_id OR
+                (rc.producto_id IS NULL AND rc.categoria_producto_id IS NULL)
+           )
+         ORDER BY
+            CASE
+              WHEN rc.producto_id = v_producto_id THEN 1
+              WHEN rc.categoria_producto_id = v_categoria_id THEN 2
+              ELSE 3
+            END,
+            rc.prioridad ASC
+         LIMIT 1;
+
+        IF v_cuenta_debe IS NULL OR v_cuenta_haber IS NULL THEN
+            SET v_msg = CONCAT('No hay regla contable para producto ', v_producto_id,
+                               ' (cat ', v_categoria_id, ') y tipo ', v_tipo, '.');
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = v_msg;
+        END IF;
+
+        -- Partida doble
+        INSERT INTO asientos_detalle (asiento_id, cuenta_id, debe, haber, concepto)
+        VALUES
+          (v_asiento_id, v_cuenta_debe, v_total, 0,  CONCAT('Mov.', p_movimiento_id, ' det.', v_detalle_id)),
+          (v_asiento_id, v_cuenta_haber, 0, v_total, CONCAT('Mov.', p_movimiento_id, ' det.', v_detalle_id));
+    END LOOP;
+    CLOSE cur_det;
+
+    -- Totales del asiento
+    UPDATE asientos a
+    JOIN (
+        SELECT asiento_id, SUM(debe) AS tdebe, SUM(haber) AS thaber
+          FROM asientos_detalle
+         WHERE asiento_id = v_asiento_id
+    ) s ON s.asiento_id = a.id
+       SET a.total_debe = s.tdebe,
+           a.total_haber = s.thaber;
+
+    -- Folio final y confirmación
+    UPDATE asientos
+       SET numero = CONCAT('AS-', DATE_FORMAT(v_fecha, '%Y%m%d'), '-', LPAD(id, 6, '0')),
+           estado = 'confirmado'
+     WHERE id = v_asiento_id;
+
+    -- Vincular asiento al movimiento
+    UPDATE movimientos
+       SET asiento_id = v_asiento_id
+     WHERE id = p_movimiento_id;
+
+    COMMIT;
+END");
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        DB::unprepared("DROP PROCEDURE IF EXISTS generar_asiento_contable");
+    }
+};

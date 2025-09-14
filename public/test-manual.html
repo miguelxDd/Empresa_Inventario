@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Manual - Sistema de Inventario</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        button {
+            background: #007cba;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #005a87;
+        }
+        .response {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 10px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .success {
+            border-color: #28a745;
+            background: #d4edda;
+        }
+        .error {
+            border-color: #dc3545;
+            background: #f8d7da;
+        }
+        h2 {
+            color: #333;
+            border-bottom: 2px solid #007cba;
+            padding-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 Test Manual - Sistema de Inventario</h1>
+    
+    <div class="container">
+        <h2>📋 1. Verificar Configuración</h2>
+        <button onclick="testConfigOptions()">Obtener Opciones de Configuración</button>
+        <button onclick="testExamples()">Obtener Ejemplos de Payloads</button>
+        <div id="config-response" class="response"></div>
+    </div>
+
+    <div class="container">
+        <h2>📦 2. Crear Movimiento de Entrada</h2>
+        <button onclick="createEntrada()">Crear Movimiento de Entrada</button>
+        <div id="entrada-response" class="response"></div>
+    </div>
+
+    <div class="container">
+        <h2>📤 3. Crear Movimiento de Salida</h2>
+        <button onclick="createSalida()">Crear Movimiento de Salida</button>
+        <div id="salida-response" class="response"></div>
+    </div>
+
+    <div class="container">
+        <h2>🔄 4. Crear Transferencia</h2>
+        <button onclick="createTransferencia()">Crear Transferencia</button>
+        <div id="transferencia-response" class="response"></div>
+    </div>
+
+    <div class="container">
+        <h2>🔍 5. Consultar Movimiento</h2>
+        <input type="number" id="movimiento-id" placeholder="ID del movimiento" value="1">
+        <button onclick="getMovimiento()">Consultar Movimiento</button>
+        <div id="consulta-response" class="response"></div>
+    </div>
+
+    <div class="container">
+        <h2>❌ 6. Cancelar Movimiento</h2>
+        <input type="number" id="cancel-id" placeholder="ID del movimiento" value="1">
+        <button onclick="cancelMovimiento()">Cancelar Movimiento</button>
+        <div id="cancel-response" class="response"></div>
+    </div>
+
+    <script>
+        const BASE_URL = '/Empresa_Inventario/public/api';
+
+        async function makeRequest(url, options = {}) {
+            try {
+                const response = await fetch(BASE_URL + url, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        ...options.headers
+                    },
+                    ...options
+                });
+                
+                const data = await response.json();
+                return {
+                    status: response.status,
+                    data: data
+                };
+            } catch (error) {
+                return {
+                    status: 0,
+                    data: { error: error.message }
+                };
+            }
+        }
+
+        function displayResponse(elementId, response) {
+            const element = document.getElementById(elementId);
+            element.textContent = JSON.stringify(response, null, 2);
+            
+            if (response.status >= 200 && response.status < 300) {
+                element.className = 'response success';
+            } else {
+                element.className = 'response error';
+            }
+        }
+
+        async function testConfigOptions() {
+            const response = await makeRequest('/movimientos/config/options');
+            displayResponse('config-response', response);
+        }
+
+        async function testExamples() {
+            const response = await makeRequest('/movimientos/config/examples');
+            displayResponse('config-response', response);
+        }
+
+        async function createEntrada() {
+            const payload = {
+                tipo_movimiento: 'entrada',
+                fecha_movimiento: new Date().toISOString().split('T')[0],
+                observaciones: 'Compra de mercancía via test manual',
+                usuario_id: 1,
+                bodega_id: 1,
+                detalles: [
+                    {
+                        producto_id: 1,
+                        cantidad: 50,
+                        precio_unitario: 15000.00,
+                        observaciones: 'Entrada de prueba manual'
+                    }
+                ],
+                asiento_contable: {
+                    cuenta_debito: 1,
+                    cuenta_credito: 2,
+                    concepto: 'Compra de inventario - Test manual'
+                }
+            };
+
+            const response = await makeRequest('/movimientos', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+            displayResponse('entrada-response', response);
+        }
+
+        async function createSalida() {
+            const payload = {
+                tipo_movimiento: 'salida',
+                fecha_movimiento: new Date().toISOString().split('T')[0],
+                observaciones: 'Venta de mercancía via test manual',
+                usuario_id: 1,
+                bodega_id: 1,
+                detalles: [
+                    {
+                        producto_id: 1,
+                        cantidad: 20,
+                        precio_unitario: 18000.00,
+                        observaciones: 'Salida de prueba manual'
+                    }
+                ],
+                asiento_contable: {
+                    cuenta_debito: 3,
+                    cuenta_credito: 1,
+                    concepto: 'Venta de inventario - Test manual'
+                }
+            };
+
+            const response = await makeRequest('/movimientos', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+            displayResponse('salida-response', response);
+        }
+
+        async function createTransferencia() {
+            const payload = {
+                tipo_movimiento: 'transferencia',
+                fecha_movimiento: new Date().toISOString().split('T')[0],
+                observaciones: 'Transferencia entre bodegas via test manual',
+                usuario_id: 1,
+                bodega_id: 1,
+                bodega_destino_id: 2,
+                detalles: [
+                    {
+                        producto_id: 1,
+                        cantidad: 15,
+                        precio_unitario: 15000.00,
+                        observaciones: 'Transferencia de prueba manual'
+                    }
+                ],
+                asiento_contable: {
+                    cuenta_debito: 1,
+                    cuenta_credito: 1,
+                    concepto: 'Transferencia de inventario - Test manual'
+                }
+            };
+
+            const response = await makeRequest('/movimientos', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+            displayResponse('transferencia-response', response);
+        }
+
+        async function getMovimiento() {
+            const id = document.getElementById('movimiento-id').value;
+            const response = await makeRequest(`/movimientos/${id}`);
+            displayResponse('consulta-response', response);
+        }
+
+        async function cancelMovimiento() {
+            const id = document.getElementById('cancel-id').value;
+            const payload = {
+                motivo_cancelacion: 'Cancelación de prueba manual'
+            };
+
+            const response = await makeRequest(`/movimientos/${id}/cancel`, {
+                method: 'PATCH',
+                body: JSON.stringify(payload)
+            });
+            displayResponse('cancel-response', response);
+        }
+
+        // Cargar automáticamente las opciones al cargar la página
+        window.onload = function() {
+            testConfigOptions();
+        };
+    </script>
+</body>
+</html>

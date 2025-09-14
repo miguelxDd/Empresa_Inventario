@@ -1,0 +1,323 @@
+/* Estilos específicos para Reportes */
+
+/* Cards de estadísticas */
+.stats-card {
+    transition: all 0.3s ease;
+    border: none;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    border-radius: 10px;
+}
+
+.stats-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+/* Bordes coloreados para stats cards */
+.border-left-primary {
+    border-left: 4px solid #007bff;
+}
+
+.border-left-success {
+    border-left: 4px solid #28a745;
+}
+
+.border-left-warning {
+    border-left: 4px solid #ffc107;
+}
+
+.border-left-info {
+    border-left: 4px solid #17a2b8;
+}
+
+.border-left-danger {
+    border-left: 4px solid #dc3545;
+}
+
+/* Report cards en index */
+.report-card {
+    transition: all 0.3s ease;
+    border: none;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    border-radius: 15px;
+    overflow: hidden;
+}
+
+.report-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+}
+
+.report-card .card-header {
+    border-radius: 15px 15px 0 0;
+    font-weight: 600;
+}
+
+.report-card .btn-block {
+    width: 100%;
+}
+
+/* Tablas de reportes */
+.table th {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    font-weight: 600;
+    font-size: 0.9em;
+}
+
+.table tbody tr {
+    transition: all 0.2s ease;
+}
+
+.table tbody tr:hover {
+    background-color: #f8f9fa;
+    transform: scale(1.01);
+}
+
+/* DataTables customization */
+.dataTables_wrapper .dataTables_length,
+.dataTables_wrapper .dataTables_filter,
+.dataTables_wrapper .dataTables_info,
+.dataTables_wrapper .dataTables_processing,
+.dataTables_wrapper .dataTables_paginate {
+    color: #495057;
+    font-size: 0.9em;
+}
+
+.dataTables_wrapper .dataTables_paginate .paginate_button.current,
+.dataTables_wrapper .dataTables_paginate .paginate_button.current:hover {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-color: #667eea;
+    color: white !important;
+    border-radius: 6px;
+}
+
+.dataTables_wrapper .dataTables_paginate .paginate_button:hover {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-color: #667eea;
+    color: white !important;
+    border-radius: 6px;
+}
+
+/* Filtros */
+.card {
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.card-header {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border-bottom: 1px solid #dee2e6;
+    font-weight: 600;
+}
+
+/* Badges personalizados */
+.badge {
+    font-size: 0.8em;
+    padding: 0.4em 0.6em;
+    border-radius: 6px;
+    font-weight: 500;
+}
+
+/* Botones de acción */
+.btn-group .btn {
+    transition: all 0.2s ease;
+    border-radius: 6px;
+}
+
+.btn-group .btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+/* Kardex específico */
+.stat-box {
+    padding: 1rem;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.1);
+    margin-bottom: 0.5rem;
+    transition: all 0.2s ease;
+}
+
+.stat-box:hover {
+    background: rgba(255,255,255,0.2);
+    transform: scale(1.05);
+}
+
+#kardexTable tbody tr.table-info {
+    background-color: #d1ecf1 !important;
+    font-weight: bold;
+}
+
+/* Formularios */
+.form-control:focus,
+.form-select:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+}
+
+/* Loading states */
+.loading-overlay {
+    background: rgba(255, 255, 255, 0.9);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .stats-card {
+        margin-bottom: 1rem;
+    }
+    
+    .report-card {
+        margin-bottom: 1.5rem;
+    }
+    
+    .table {
+        font-size: 0.85em;
+    }
+    
+    .btn-group .btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.8em;
+    }
+    
+    .stat-box {
+        padding: 0.75rem;
+    }
+}
+
+@media (max-width: 576px) {
+    .table th, .table td {
+        padding: 0.5rem 0.25rem;
+        font-size: 0.8em;
+    }
+    
+    .badge {
+        font-size: 0.7em;
+        padding: 0.3em 0.5em;
+    }
+}
+
+/* Print styles */
+@media print {
+    .card-header,
+    .btn,
+    .dataTables_wrapper .dataTables_length,
+    .dataTables_wrapper .dataTables_filter,
+    .dataTables_wrapper .dataTables_info,
+    .dataTables_wrapper .dataTables_paginate,
+    .page-header,
+    .sidebar,
+    .loading-overlay {
+        display: none !important;
+    }
+    
+    .card {
+        border: none !important;
+        box-shadow: none !important;
+        page-break-inside: avoid;
+    }
+    
+    .table {
+        font-size: 0.8em;
+    }
+    
+    .table thead th {
+        background: #f8f9fa !important;
+        color: #000 !important;
+    }
+    
+    body {
+        background: white !important;
+    }
+}
+
+/* Animations */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.fade-in-up {
+    animation: fadeInUp 0.3s ease-out;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+.pulse {
+    animation: pulse 1.5s infinite;
+}
+
+/* Custom scrollbar for tables */
+.table-responsive::-webkit-scrollbar {
+    height: 8px;
+}
+
+.table-responsive::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 10px;
+}
+
+.table-responsive::-webkit-scrollbar-thumb {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 10px;
+}
+
+.table-responsive::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+}
+
+/* Modal improvements */
+.modal-content {
+    border-radius: 15px;
+    border: none;
+    overflow: hidden;
+}
+
+.modal-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+}
+
+.modal-header .btn-close {
+    filter: invert(1);
+}
+
+/* Tooltips customization */
+.tooltip-inner {
+    background-color: #212529;
+    border-radius: 6px;
+    font-size: 0.8em;
+}
+
+/* Success/Error states */
+.text-success {
+    color: #28a745 !important;
+}
+
+.text-danger {
+    color: #dc3545 !important;
+}
+
+.text-warning {
+    color: #ffc107 !important;
+}
+
+.text-info {
+    color: #17a2b8 !important;
+}
+
+.text-primary {
+    color: #007bff !important;
+}
