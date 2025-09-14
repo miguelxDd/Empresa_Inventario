@@ -123,7 +123,7 @@ class MovimientoInventarioController extends Controller
             }
 
             // Crear el asiento contable
-            $numeroAsiento = 'AS-' . date('Y') . '-' . str_pad(random_int(1, 999), 3, '0', STR_PAD_LEFT);
+            $numeroAsiento = $this->generarNumeroAsientoUnico();
             $asientoId = DB::table('asientos')->insertGetId([
                 'fecha' => now()->format('Y-m-d'),
                 'numero' => $numeroAsiento,
@@ -311,7 +311,7 @@ class MovimientoInventarioController extends Controller
                 'data' => [
                     'costo_promedio' => $costoPromedio,
                     'stock_disponible' => $stockDisponible,
-                    'unidade_simbolo' => $producto->unidade->simbolo ?? '',
+                    'unidade_simbolo' => $producto->unidade->abreviatura ?? '',
                     'precio_compra' => $producto->precio_compra,
                     'precio_venta' => $producto->precio_venta
                 ]
@@ -528,6 +528,118 @@ class MovimientoInventarioController extends Controller
     }
 
     /**
+     * Obtener productos con existencias en una bodega específica
+     */
+    public function getProductosConExistencias(Request $request)
+    {
+        try {
+            $bodegaId = $request->get('bodega_id');
+            $tipo = $request->get('tipo');
+            
+            if (!$bodegaId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'ID de bodega requerido'
+                ]);
+            }
+            
+            $query = \App\Models\Producto::select([
+                'productos.id',
+                'productos.sku', 
+                'productos.nombre',
+                'productos.precio_compra_promedio as precio_compra',
+                'productos.precio_venta',
+                'unidades.abreviatura as unidade_simbolo'
+            ])
+            ->join('unidades', 'productos.unidad_id', '=', 'unidades.id')
+            ->where('productos.activo', true);
+            
+            // Para salidas y transferencias, solo productos con existencias
+            if (in_array($tipo, ['salida', 'transferencia'])) {
+                $query->join('existencias', 'productos.id', '=', 'existencias.producto_id')
+                      ->where('existencias.bodega_id', $bodegaId)
+                      ->where('existencias.cantidad', '>', 0)
+                      ->addSelect([
+                          'existencias.cantidad as stock_actual',
+                          'existencias.costo_promedio'
+                      ]);
+            }
+            
+            $productos = $query->orderBy('productos.nombre')->get();
+            
+            // Formatear productos
+            $productosFormateados = $productos->map(function ($producto) {
+                $texto = $producto->sku . ' - ' . $producto->nombre;
+                if (isset($producto->stock_actual)) {
+                    $texto .= ' (Stock: ' . number_format($producto->stock_actual, 2) . ')';
+                }
+                
+                return [
+                    'id' => $producto->id,
+                    'sku' => $producto->sku,
+                    'nombre' => $producto->nombre,
+                    'precio_compra' => $producto->precio_compra ?? 0,
+                    'precio_venta' => $producto->precio_venta ?? 0,
+                    'unidade_simbolo' => $producto->unidade_simbolo,
+                    'stock_actual' => $producto->stock_actual ?? null,
+                    'costo_promedio' => $producto->costo_promedio ?? 0,
+                    'texto_completo' => $texto
+                ];
+            });
+            
+            return response()->json([
+                'success' => true,
+                'data' => $productosFormateados
+            ]);
+            
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener productos: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Obtener bodegas que tienen existencias de productos
+     */
+    public function getBodegasConExistencias(Request $request)
+    {
+        try {
+            $tipo = $request->get('tipo');
+            
+            $query = \App\Models\Bodega::select([
+                'bodegas.id',
+                'bodegas.codigo',
+                'bodegas.nombre',
+                'bodegas.ubicacion'
+            ])
+            ->where('bodegas.activa', true);
+            
+            // Para salidas y transferencias, solo bodegas con existencias
+            if (in_array($tipo, ['salida', 'transferencia'])) {
+                $query->join('existencias', 'bodegas.id', '=', 'existencias.bodega_id')
+                      ->where('existencias.cantidad', '>', 0)
+                      ->groupBy('bodegas.id', 'bodegas.codigo', 'bodegas.nombre', 'bodegas.ubicacion')
+                      ->havingRaw('SUM(existencias.cantidad) > 0');
+            }
+            
+            $bodegas = $query->orderBy('bodegas.codigo')->get();
+            
+            return response()->json([
+                'success' => true,
+                'data' => $bodegas
+            ]);
+            
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener bodegas: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
      * Obtener detalle completo de un movimiento
      */
     public function show($id)
@@ -629,5 +741,45 @@ class MovimientoInventarioController extends Controller
         } catch (\Exception $e) {
             return back()->with('error', 'Error al generar impresión: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Generar número de asiento único y consecutivo (thread-safe)
+     */
+    private function generarNumeroAsientoUnico()
+    {
+        return DB::transaction(function () {
+            $año = date('Y');
+            $prefijo = "AS-{$año}-";
+            
+            // Buscar el último número de asiento del año actual con lock for update
+            $ultimoAsiento = DB::table('asientos')
+                ->where('numero', 'LIKE', $prefijo . '%')
+                ->lockForUpdate()
+                ->orderByRaw('CAST(SUBSTRING(numero, CHAR_LENGTH(?)) AS UNSIGNED) DESC', [$prefijo])
+                ->first();
+            
+            if ($ultimoAsiento) {
+                // Extraer el número consecutivo del último asiento
+                $ultimoNumero = intval(str_replace($prefijo, '', $ultimoAsiento->numero));
+                $nuevoNumero = $ultimoNumero + 1;
+            } else {
+                // Primer asiento del año
+                $nuevoNumero = 1;
+            }
+            
+            // Generar el número con padding de 3 dígitos
+            $numeroGenerado = $prefijo . str_pad($nuevoNumero, 3, '0', STR_PAD_LEFT);
+            
+            // Verificación final de unicidad dentro de la transacción
+            $existe = DB::table('asientos')->where('numero', $numeroGenerado)->exists();
+            
+            if ($existe) {
+                // Si por alguna razón ya existe, usar timestamp como fallback
+                $numeroGenerado = $prefijo . str_pad(time() % 10000, 4, '0', STR_PAD_LEFT);
+            }
+            
+            return $numeroGenerado;
+        });
     }
 }

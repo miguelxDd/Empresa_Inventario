@@ -38,6 +38,8 @@ Route::resource('movimientos', MovimientoInventarioController::class)->only(['in
 Route::get('movimientos-options', [MovimientoInventarioController::class, 'getFormOptions'])->name('movimientos.options');
 Route::get('movimientos-list', [MovimientoInventarioController::class, 'getMovements'])->name('movimientos.list');
 Route::get('producto-cost', [MovimientoInventarioController::class, 'getProductCost'])->name('producto.cost');
+Route::get('productos-con-existencias', [MovimientoInventarioController::class, 'getProductosConExistencias'])->name('productos.con-existencias');
+Route::get('bodegas-con-existencias', [MovimientoInventarioController::class, 'getBodegasConExistencias'])->name('bodegas.con-existencias');
 Route::post('inventarios/movimientos/{id}/confirmar', [MovimientoInventarioController::class, 'confirmar'])->name('movimientos.confirmar');
 Route::get('movimientos/{id}/print', [MovimientoInventarioController::class, 'print'])->name('movimientos.print');
 

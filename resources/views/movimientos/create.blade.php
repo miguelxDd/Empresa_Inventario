@@ -46,16 +46,16 @@
                                     <select class="form-select" id="tipo_movimiento" name="tipo_movimiento" required>
                                         <option value="">Seleccionar tipo...</option>
                                         <option value="entrada">
-                                            <i class="fas fa-arrow-down"></i> Entrada
+                                            📥 Entrada - Recibir productos
                                         </option>
                                         <option value="salida">
-                                            <i class="fas fa-arrow-up"></i> Salida
+                                            📤 Salida - Despachar productos
                                         </option>
                                         <option value="ajuste">
-                                            <i class="fas fa-tools"></i> Ajuste
+                                            ⚖️ Ajuste - Corregir inventario
                                         </option>
                                         <option value="transferencia">
-                                            <i class="fas fa-exchange-alt"></i> Transferencia
+                                            🔄 Transferencia - Entre bodegas
                                         </option>
                                     </select>
                                     <div class="invalid-feedback"></div>
@@ -69,6 +69,7 @@
                                         <option value="">Seleccionar bodega origen...</option>
                                     </select>
                                     <div class="invalid-feedback"></div>
+                                    <small class="text-muted" id="bodegaOrigenHelp">Solo bodegas con productos disponibles</small>
                                 </div>
                             </div>
 
@@ -79,6 +80,18 @@
                                         <option value="">Seleccionar bodega destino...</option>
                                     </select>
                                     <div class="invalid-feedback"></div>
+                                    <small class="text-muted" id="bodegaDestinoHelp">Debe ser diferente a la bodega origen</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Información del tipo de movimiento -->
+                        <div id="tipoInfo" class="alert alert-light border-start border-4 border-primary" style="display: none;">
+                            <div class="d-flex align-items-center">
+                                <i class="fas fa-info-circle me-2 text-primary"></i>
+                                <div>
+                                    <strong>Información:</strong><br>
+                                    <span id="tipoDescripcion"></span>
                                 </div>
                             </div>
                         </div>
@@ -154,7 +167,7 @@
                                 <i class="fas fa-save me-2"></i>Guardar Movimiento
                             </button>
                             
-                            <button type="button" class="btn btn-warning" onclick="limpiarFormulario()">
+                            <button type="button" class="btn btn-warning" onclick="confirmarLimpiezaFormulario()">
                                 <i class="fas fa-broom me-2"></i>Limpiar Formulario
                             </button>
                             
@@ -243,6 +256,17 @@
         $('#tipo_movimiento').on('change', handleTipoChange);
         $('#movimientoForm').on('submit', handleFormSubmit);
         
+        // Modal events
+        $('#resultadoModal').on('hidden.bs.modal', function () {
+            // Asegurar que el formulario esté limpio cuando se cierre el modal
+            // Solo si no se ha limpiado ya
+            setTimeout(() => {
+                if ($('#lineasTableBody tr').length > 0 || $('#tipo_movimiento').val()) {
+                    limpiarFormulario();
+                }
+            }, 100);
+        });
+        
         // Initialize
         updateBodegaVisibility();
         updateNoLineasMessage();
@@ -289,6 +313,23 @@
             });
         });
         
+        // Agregar event listeners para cambios de bodega
+        origenSelect.off('change.bodegaFilter').on('change.bodegaFilter', function() {
+            const tipo = $('#tipo_movimiento').val();
+            if (tipo === 'transferencia') {
+                filterBodegasForTransferencia();
+            }
+            handleBodegaChange();
+        });
+        
+        destinoSelect.off('change.bodegaFilter').on('change.bodegaFilter', function() {
+            const tipo = $('#tipo_movimiento').val();
+            if (tipo === 'transferencia') {
+                filterBodegasForTransferencia();
+            }
+            handleBodegaChange();
+        });
+        
         console.log('Select de origen opciones:', origenSelect.find('option').length);
         console.log('Select de destino opciones:', destinoSelect.find('option').length);
     }
@@ -297,36 +338,106 @@
         const tipo = $(this).val();
         costoEditable = ['entrada', 'ajuste'].includes(tipo);
         
+        // Limpiar selecciones anteriores antes de actualizar
+        $('#bodega_origen_id, #bodega_destino_id').val('');
+        
         updateBodegaVisibility();
         updateTipoInfo(tipo);
+        updateProductosDisponibles(tipo);
         updateExistingLines();
+        
+        // Si hay líneas existentes, actualizar opciones de productos
+        if ($('#lineasTableBody tr').length > 0) {
+            updateProductOptionsInExistingLines();
+        }
     }
 
     function updateBodegaVisibility() {
         const tipo = $('#tipo_movimiento').val();
         const origenContainer = $('#bodegaOrigenContainer');
         const destinoContainer = $('#bodegaDestinoContainer');
+        const bodegaOrigenHelp = $('#bodegaOrigenHelp');
+        const bodegaDestinoHelp = $('#bodegaDestinoHelp');
         
         // Reset visibility
         origenContainer.hide();
         destinoContainer.hide();
+        bodegaOrigenHelp.hide();
+        bodegaDestinoHelp.hide();
         
         // Show based on type
         switch(tipo) {
             case 'entrada':
                 destinoContainer.show();
+                // Restaurar todas las opciones para entrada
+                populateBodegas();
                 break;
             case 'salida':
                 origenContainer.show();
+                bodegaOrigenHelp.show();
+                // Para salidas, cargar solo bodegas con existencias
+                loadBodegasConExistencias('salida', 'origen');
                 break;
             case 'ajuste':
                 destinoContainer.show();
+                // Restaurar todas las opciones para ajuste
+                populateBodegas();
                 break;
             case 'transferencia':
                 origenContainer.show();
                 destinoContainer.show();
+                bodegaOrigenHelp.show();
+                bodegaDestinoHelp.show();
+                // Para transferencias, cargar solo bodegas con existencias para origen
+                loadBodegasConExistencias('transferencia', 'origen');
+                // Para destino, cargar todas las bodegas inicialmente
+                populateBodegasSelect('#bodega_destino_id');
+                break;
+            default:
                 break;
         }
+    }
+
+    function loadBodegasConExistencias(tipo, contexto = 'origen') {
+        $.get('{{ route("bodegas.con-existencias") }}', { tipo: tipo })
+            .done(function(response) {
+                if (response.success) {
+                    if (contexto === 'origen') {
+                        populateBodegasSelectWithData('#bodega_origen_id', response.data);
+                    } else {
+                        populateBodegasSelectWithData('#bodega_destino_id', response.data);
+                    }
+                } else {
+                    console.error('Error al cargar bodegas con existencias:', response.message);
+                    showToast('Error al cargar bodegas con productos disponibles', 'error');
+                }
+            })
+            .fail(function(xhr) {
+                console.error('Error AJAX al cargar bodegas:', xhr);
+                showToast('Error de conexión al cargar bodegas', 'error');
+            });
+    }
+
+    function populateBodegasSelectWithData(selector, bodegasData) {
+        const select = $(selector);
+        const labelText = selector.includes('origen') ? 'Seleccionar bodega origen...' : 'Seleccionar bodega destino...';
+        
+        select.empty().append(`<option value="">${labelText}</option>`);
+        
+        bodegasData.forEach(function(bodega) {
+            select.append(`<option value="${bodega.id}">${bodega.codigo} - ${bodega.nombre}</option>`);
+        });
+    }
+
+    function populateBodegasSelect(selector) {
+        const select = $(selector);
+        const labelText = selector.includes('origen') ? 'Seleccionar bodega origen...' : 'Seleccionar bodega destino...';
+        
+        select.empty().append(`<option value="">${labelText}</option>`);
+        
+        bodegas.forEach(function(bodega) {
+            select.append(`<option value="${bodega.id}">${bodega.codigo} - ${bodega.nombre}</option>`);
+        });
     }
 
     function updateTipoInfo(tipo) {
@@ -335,9 +446,9 @@
         
         const descripciones = {
             'entrada': 'Registra productos que ingresan al inventario. Puedes editar el costo unitario.',
-            'salida': 'Registra productos que salen del inventario. El costo se calcula automáticamente.',
-            'ajuste': 'Ajusta las existencias de productos. Puedes editar el costo unitario.',
-            'transferencia': 'Transfiere productos entre bodegas. El costo se mantiene automáticamente.'
+            'salida': 'Registra productos que salen del inventario. Solo se muestran productos con existencias en la bodega seleccionada.',
+            'ajuste': 'Ajusta las existencias de productos. Permite ajustes positivos y negativos.',
+            'transferencia': 'Transfiere productos entre bodegas. Solo se muestran productos con existencias en la bodega origen.'
         };
         
         if (tipo && descripciones[tipo]) {
@@ -348,10 +459,185 @@
         }
     }
 
+    function updateProductosDisponibles(tipo) {
+        // Esta función se ejecutará cuando cambie el tipo
+        // La lógica específica se aplicará cuando se seleccione la bodega
+        console.log('Tipo de movimiento cambiado a:', tipo);
+    }
+
+    function handleBodegaChange() {
+        const tipo = $('#tipo_movimiento').val();
+        updateProductOptionsInExistingLines();
+        
+        // Si es transferencia, filtrar bodegas para evitar duplicados
+        if (tipo === 'transferencia') {
+            filterBodegasForTransferencia();
+        }
+        
+        // Si es salida o transferencia, filtrar productos con existencias
+        if (tipo === 'salida' || tipo === 'transferencia') {
+            updateBodegasWithStock();
+        }
+    }
+
+    function filterBodegasForTransferencia() {
+        const bodegaOrigenId = $('#bodega_origen_id').val();
+        const bodegaDestinoId = $('#bodega_destino_id').val();
+        const origenSelect = $('#bodega_origen_id');
+        const destinoSelect = $('#bodega_destino_id');
+        
+        // Para transferencias, necesitamos cargar bodegas con existencias y luego filtrar
+        $.get('{{ route("bodegas.con-existencias") }}', { tipo: 'transferencia' })
+            .done(function(response) {
+                if (response.success) {
+                    const bodegasConStock = response.data;
+                    
+                    // Filtrar bodega destino (excluir la seleccionada como origen)
+                    destinoSelect.empty().append('<option value="">Seleccionar bodega destino...</option>');
+                    bodegas.forEach(function(bodega) {
+                        if (bodega.id != bodegaOrigenId) { // Excluir bodega origen
+                            destinoSelect.append(`<option value="${bodega.id}">${bodega.codigo} - ${bodega.nombre}</option>`);
+                        }
+                    });
+                    
+                    // Filtrar bodega origen (solo las que tienen stock y excluir destino)
+                    origenSelect.empty().append('<option value="">Seleccionar bodega origen...</option>');
+                    bodegasConStock.forEach(function(bodega) {
+                        if (bodega.id != bodegaDestinoId) { // Excluir bodega destino
+                            origenSelect.append(`<option value="${bodega.id}">${bodega.codigo} - ${bodega.nombre}</option>`);
+                        }
+                    });
+                    
+                    // Restaurar valores si siguen siendo válidos
+                    if (bodegaDestinoId && bodegaDestinoId != bodegaOrigenId) {
+                        destinoSelect.val(bodegaDestinoId);
+                    }
+                    
+                    if (bodegaOrigenId && bodegaOrigenId != bodegaDestinoId) {
+                        origenSelect.val(bodegaOrigenId);
+                    }
+                } else {
+                    console.error('Error al cargar bodegas para transferencia:', response.message);
+                }
+            })
+            .fail(function(xhr) {
+                console.error('Error AJAX al filtrar bodegas:', xhr);
+            });
+    }
+
+    function updateBodegasWithStock() {
+        const tipo = $('#tipo_movimiento').val();
+        
+        if (tipo === 'salida') {
+            // Para salidas, solo mostrar bodegas que tienen productos
+            filterBodegasWithStock('#bodega_origen_id');
+        } else if (tipo === 'transferencia') {
+            // Para transferencias, filtrar bodega origen
+            filterBodegasWithStock('#bodega_origen_id');
+        }
+    }
+
+    function filterBodegasWithStock(selectId) {
+        // Esta función podría hacer una consulta AJAX para obtener solo bodegas con stock
+        // Por ahora mantenemos todas las bodegas, pero la lógica de productos se filtrará
+        console.log('Filtrando bodegas con stock para:', selectId);
+    }
+
+    function updateProductOptionsInExistingLines() {
+        const tipo = $('#tipo_movimiento').val();
+        const bodegaOrigenId = $('#bodega_origen_id').val();
+        const bodegaDestinoId = $('#bodega_destino_id').val();
+        
+        $('#lineasTableBody tr').each(function() {
+            const row = $(this);
+            const productoSelect = row.find('.producto-select');
+            const selectedValue = productoSelect.val();
+            
+            updateProductOptions(productoSelect, tipo, bodegaOrigenId, bodegaDestinoId, selectedValue);
+        });
+    }
+
+    function updateProductOptions(selectElement, tipo, bodegaOrigenId, bodegaDestinoId, selectedValue = '') {
+        // Para entrada y ajuste, usar todos los productos
+        if (['entrada', 'ajuste'].includes(tipo)) {
+            selectElement.empty().append('<option value="">Seleccionar producto...</option>');
+            
+            productos.forEach(function(producto) {
+                const option = `<option value="${producto.id}" 
+                                      data-precio-compra="${producto.precio_compra}" 
+                                      data-precio-venta="${producto.precio_venta}" 
+                                      data-unidad="${producto.unidade_simbolo}">
+                                      ${producto.texto_completo}
+                                </option>`;
+                selectElement.append(option);
+            });
+            
+            if (selectedValue) {
+                selectElement.val(selectedValue);
+            }
+            return;
+        }
+        
+        // Para salida y transferencia, obtener productos con existencias
+        if (['salida', 'transferencia'].includes(tipo) && bodegaOrigenId) {
+            $.get('{{ route("productos.con-existencias") }}', {
+                bodega_id: bodegaOrigenId,
+                tipo: tipo
+            })
+            .done(function(response) {
+                if (response.success) {
+                    selectElement.empty().append('<option value="">Seleccionar producto...</option>');
+                    
+                    response.data.forEach(function(producto) {
+                        const option = `<option value="${producto.id}" 
+                                              data-precio-compra="${producto.precio_compra}" 
+                                              data-precio-venta="${producto.precio_venta}" 
+                                              data-unidad="${producto.unidade_simbolo}"
+                                              data-stock="${producto.stock_actual || 0}"
+                                              data-costo-promedio="${producto.costo_promedio || 0}">
+                                              ${producto.texto_completo}
+                                        </option>`;
+                        selectElement.append(option);
+                    });
+                    
+                    if (selectedValue) {
+                        selectElement.val(selectedValue);
+                    }
+                } else {
+                    console.error('Error al cargar productos con existencias:', response.message);
+                    selectElement.empty().append('<option value="">Error al cargar productos</option>');
+                }
+            })
+            .fail(function(xhr) {
+                console.error('Error AJAX al cargar productos:', xhr);
+                selectElement.empty().append('<option value="">Error de conexión</option>');
+            });
+        } else {
+            // Sin bodega seleccionada para salida/transferencia
+            selectElement.empty().append('<option value="">Primero selecciona la bodega origen</option>');
+        }
+    }
+
     function agregarLinea() {
         const tipo = $('#tipo_movimiento').val();
         if (!tipo) {
             showToast('Selecciona primero el tipo de movimiento', 'warning');
+            return;
+        }
+        
+        // Validar bodegas según el tipo
+        if (tipo === 'salida' && !$('#bodega_origen_id').val()) {
+            showToast('Selecciona la bodega origen para salidas', 'warning');
+            return;
+        }
+        
+        if (tipo === 'transferencia' && (!$('#bodega_origen_id').val() || !$('#bodega_destino_id').val())) {
+            showToast('Selecciona tanto la bodega origen como destino para transferencias', 'warning');
+            return;
+        }
+        
+        if (['entrada', 'ajuste'].includes(tipo) && !$('#bodega_destino_id').val()) {
+            showToast(`Selecciona la bodega destino para ${tipo}s`, 'warning');
             return;
         }
         
@@ -361,17 +647,25 @@
         const costoReadonly = costoEditable ? '' : 'readonly';
         const costoClass = costoEditable ? '' : 'bg-light';
         
+        // Determinar placeholder para cantidad según el tipo
+        let cantidadPlaceholder = '0.00';
+        let cantidadMin = '0.01';
+        
+        if (tipo === 'ajuste') {
+            cantidadPlaceholder = 'Ej: 10 (positivo) o -5 (negativo)';
+            cantidadMin = undefined; // Permitir negativos
+        }
+        
         const lineaHtml = `
             <tr id="${lineaId}" data-linea-id="${lineaCounter}">
                 <td>
                     <select class="form-select producto-select" name="lineas[${lineaCounter}][producto_id]" required>
                         <option value="">Seleccionar producto...</option>
-                        ${productos.map(p => `<option value="${p.id}" data-precio-compra="${p.precio_compra}" data-precio-venta="${p.precio_venta}" data-unidad="${p.unidade_simbolo}">${p.texto_completo}</option>`).join('')}
                     </select>
                 </td>
                 <td>
                     <input type="number" class="form-control cantidad-input" name="lineas[${lineaCounter}][cantidad]" 
-                           step="0.01" min="0.01" placeholder="0.00" required>
+                           step="0.01" ${cantidadMin ? `min="${cantidadMin}"` : ''} placeholder="${cantidadPlaceholder}" required>
                 </td>
                 <td>
                     <span class="unidad-display">-</span>
@@ -395,7 +689,14 @@
         
         // Add event listeners
         const row = $(`#${lineaId}`);
-        row.find('.producto-select').on('change', handleProductoChange);
+        const productoSelect = row.find('.producto-select');
+        
+        // Actualizar opciones de productos para esta línea
+        const bodegaOrigenId = $('#bodega_origen_id').val();
+        const bodegaDestinoId = $('#bodega_destino_id').val();
+        updateProductOptions(productoSelect, tipo, bodegaOrigenId, bodegaDestinoId);
+        
+        productoSelect.on('change', handleProductoChange);
         row.find('.cantidad-input, .costo-input').on('input', calculateSubtotal);
         
         updateNoLineasMessage();
@@ -414,21 +715,57 @@
         const selectedOption = $(this).find(':selected');
         const unidadDisplay = row.find('.unidad-display');
         const costoInput = row.find('.costo-input');
+        const cantidadInput = row.find('.cantidad-input');
+        const tipo = $('#tipo_movimiento').val();
         
         if (selectedOption.val()) {
             const unidad = selectedOption.data('unidad') || '-';
             unidadDisplay.text(unidad);
             
+            // Establecer costo según el tipo
             if (costoEditable) {
                 const precioCompra = selectedOption.data('precio-compra') || 0;
                 costoInput.val(precioCompra);
             } else {
-                // Load cost from warehouse if needed
-                loadProductCost(selectedOption.val(), row);
+                // Para salidas y transferencias, usar costo promedio
+                const costoPromedio = selectedOption.data('costo-promedio') || 0;
+                costoInput.val(costoPromedio);
+            }
+            
+            // Para salidas y transferencias, establecer límite de cantidad
+            if (['salida', 'transferencia'].includes(tipo)) {
+                const stockActual = selectedOption.data('stock') || 0;
+                cantidadInput.attr('max', stockActual);
+                cantidadInput.attr('title', `Stock disponible: ${stockActual}`);
+                
+                // Agregar validación en tiempo real
+                cantidadInput.off('input.stockValidation').on('input.stockValidation', function() {
+                    const cantidad = parseFloat($(this).val()) || 0;
+                    if (cantidad > stockActual) {
+                        $(this).addClass('is-invalid');
+                        $(this).siblings('.invalid-feedback').remove();
+                        $(this).after(`<div class="invalid-feedback">Cantidad excede el stock disponible (${stockActual})</div>`);
+                    } else {
+                        $(this).removeClass('is-invalid');
+                        $(this).siblings('.invalid-feedback').remove();
+                    }
+                });
+            } else {
+                // Remover límites para entrada y ajuste
+                cantidadInput.removeAttr('max');
+                cantidadInput.removeAttr('title');
+                cantidadInput.off('input.stockValidation');
+                cantidadInput.removeClass('is-invalid');
+                cantidadInput.siblings('.invalid-feedback').remove();
             }
         } else {
             unidadDisplay.text('-');
             costoInput.val('');
+            cantidadInput.removeAttr('max');
+            cantidadInput.removeAttr('title');
+            cantidadInput.off('input.stockValidation');
+            cantidadInput.removeClass('is-invalid');
+            cantidadInput.siblings('.invalid-feedback').remove();
         }
         
         calculateSubtotal.call(this);
@@ -576,29 +913,175 @@
             return false;
         }
         
-        return true;
+        // Validar bodegas según el tipo
+        if (tipo === 'salida' && !$('#bodega_origen_id').val()) {
+            showToast('Selecciona la bodega origen para salidas', 'error');
+            return false;
+        }
+        
+        if (tipo === 'transferencia') {
+            if (!$('#bodega_origen_id').val() || !$('#bodega_destino_id').val()) {
+                showToast('Selecciona tanto la bodega origen como destino para transferencias', 'error');
+                return false;
+            }
+            
+            if ($('#bodega_origen_id').val() === $('#bodega_destino_id').val()) {
+                showToast('La bodega origen y destino no pueden ser la misma', 'error');
+                return false;
+            }
+        }
+        
+        if (['entrada', 'ajuste'].includes(tipo) && !$('#bodega_destino_id').val()) {
+            showToast(`Selecciona la bodega destino para ${tipo}s`, 'error');
+            return false;
+        }
+        
+        // Validar líneas de productos
+        let hasErrors = false;
+        
+        $('#lineasTableBody tr').each(function() {
+            const row = $(this);
+            const productoId = row.find('.producto-select').val();
+            const cantidad = parseFloat(row.find('.cantidad-input').val()) || 0;
+            const costo = parseFloat(row.find('.costo-input').val()) || 0;
+            
+            if (!productoId) {
+                showToast('Todos los productos deben estar seleccionados', 'error');
+                hasErrors = true;
+                return false;
+            }
+            
+            if (cantidad === 0) {
+                showToast('Todas las cantidades deben ser mayor a cero', 'error');
+                hasErrors = true;
+                return false;
+            }
+            
+            // Para ajustes, permitir cantidades negativas
+            if (tipo !== 'ajuste' && cantidad < 0) {
+                showToast('Las cantidades no pueden ser negativas excepto en ajustes', 'error');
+                hasErrors = true;
+                return false;
+            }
+            
+            if (costoEditable && costo < 0) {
+                showToast('Los costos no pueden ser negativos', 'error');
+                hasErrors = true;
+                return false;
+            }
+            
+            // Validar campos con errores de validación
+            if (row.find('.is-invalid').length > 0) {
+                showToast('Corrige los errores en las líneas de productos', 'error');
+                hasErrors = true;
+                return false;
+            }
+        });
+        
+        return !hasErrors;
     }
 
     function showResultModal(data) {
         $('#asientoNumero').text(data.asiento_numero);
         $('#movimientoId').text(data.movimiento_id);
         $('#resultadoModal').modal('show');
+        
+        // Limpiar formulario automáticamente después de mostrar el modal
+        setTimeout(() => {
+            limpiarFormulario();
+        }, 1000); // Dar tiempo para que el usuario vea el modal
     }
 
     function nuevoMovimiento() {
         $('#resultadoModal').modal('hide');
-        limpiarFormulario();
+        // La limpieza ya se hizo automáticamente en showResultModal
+        // Pero podemos asegurar que esté limpio
+        setTimeout(() => {
+            limpiarFormulario();
+            // Enfocar el primer campo para facilitar el siguiente movimiento
+            $('#tipo_movimiento').focus();
+        }, 300);
+    }
+
+    function confirmarLimpiezaFormulario() {
+        // Verificar si hay contenido en el formulario
+        const tipoSeleccionado = $('#tipo_movimiento').val();
+        const lineasExistentes = $('#lineasTableBody tr').length;
+        const observaciones = $('#observaciones').val().trim();
+        
+        if (!tipoSeleccionado && lineasExistentes === 0 && !observaciones) {
+            showToast('El formulario ya está limpio', 'info');
+            return;
+        }
+        
+        Swal.fire({
+            title: '¿Limpiar formulario?',
+            text: 'Se perderán todos los datos ingresados en el formulario.',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#ffc107',
+            cancelButtonColor: '#6c757d',
+            confirmButtonText: '<i class="fas fa-broom"></i> Sí, limpiar',
+            cancelButtonText: '<i class="fas fa-times"></i> Cancelar'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                limpiarFormulario();
+                Swal.fire({
+                    title: '¡Limpiado!',
+                    text: 'El formulario ha sido limpiado correctamente.',
+                    icon: 'success',
+                    timer: 1500,
+                    showConfirmButton: false
+                });
+            }
+        });
     }
 
     function limpiarFormulario() {
+        // Reset del formulario principal
         $('#movimientoForm')[0].reset();
+        
+        // Limpiar líneas de productos
         $('#lineasTableBody').empty();
+        
+        // Restablecer contadores
+        lineaCounter = 0;
+        
+        // Limpiar selects de bodegas
+        $('#bodega_origen_id, #bodega_destino_id').val('').trigger('change');
+        
+        // Restablecer opciones de bodegas según el tipo
+        const tipoSeleccionado = $('#tipo_movimiento').val();
+        if (tipoSeleccionado) {
+            // Si hay un tipo seleccionado, mantenerlo pero restablecer bodegas
+            updateBodegaVisibility();
+        } else {
+            // Si no hay tipo, ocultar bodegas
+            $('#bodegaOrigenContainer, #bodegaDestinoContainer').hide();
+            $('#bodegaOrigenHelp, #bodegaDestinoHelp').hide();
+        }
+        
+        // Ocultar paneles informativos
         $('#tipoInfo').hide();
         $('#resumenPanel').hide();
-        updateBodegaVisibility();
+        
+        // Actualizar estado de UI
         updateNoLineasMessage();
+        updateResumen();
+        
+        // Limpiar errores
         clearFormErrors();
-        lineaCounter = 0;
+        
+        // Restablecer totales
+        $('#totalGeneral').text('$0.00');
+        $('#totalLineas').text('0');
+        $('#totalProductos').text('0.00');
+        $('#valorTotal').text('$0.00');
+        
+        // Restablecer variable de edición de costos
+        costoEditable = false;
+        
+        console.log('Formulario completamente limpiado');
     }
 
     function clearFormErrors() {
