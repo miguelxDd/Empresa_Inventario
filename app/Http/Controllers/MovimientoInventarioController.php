@@ -526,4 +526,108 @@ class MovimientoInventarioController extends Controller
             
         return $existencia ? $existencia->costo_promedio : 0;
     }
+
+    /**
+     * Obtener detalle completo de un movimiento
+     */
+    public function show($id)
+    {
+        try {
+            $movimiento = \App\Models\Movimiento::with([
+                'bodega:id,nombre,codigo' // bodega es la relación con bodega_origen_id
+            ])->findOrFail($id);
+
+            // Obtener bodega destino manualmente si existe
+            $bodegaDestino = null;
+            if ($movimiento->bodega_destino_id) {
+                $bodegaDestino = \App\Models\Bodega::select('id', 'nombre', 'codigo')
+                    ->find($movimiento->bodega_destino_id);
+            }
+
+            $detalles = \App\Models\MovimientoDetalle::where('movimiento_id', $id)
+                ->with(['producto:id,nombre,sku'])
+                ->get()
+                ->map(function ($detalle) {
+                    return [
+                        'producto_id' => $detalle->producto_id,
+                        'producto_codigo' => $detalle->producto->sku ?? 'N/A',
+                        'producto_nombre' => $detalle->producto->nombre ?? 'Producto no encontrado',
+                        'cantidad' => $detalle->cantidad,
+                        'costo_unitario' => $detalle->costo_unitario ?? 0,
+                        'total' => $detalle->total ?? ($detalle->cantidad * ($detalle->costo_unitario ?? 0))
+                    ];
+                });
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'movimiento' => [
+                        'id' => $movimiento->id,
+                        'numero' => $movimiento->numero_documento ?? $movimiento->id,
+                        'tipo' => $movimiento->tipo,
+                        'fecha' => $movimiento->fecha,
+                        'estado' => $movimiento->estado,
+                        'bodega_origen' => $movimiento->bodega ? [
+                            'id' => $movimiento->bodega->id,
+                            'nombre' => $movimiento->bodega->nombre,
+                            'codigo' => $movimiento->bodega->codigo
+                        ] : null,
+                        'bodega_destino' => $bodegaDestino ? [
+                            'id' => $bodegaDestino->id,
+                            'nombre' => $bodegaDestino->nombre,
+                            'codigo' => $bodegaDestino->codigo
+                        ] : null,
+                        'observaciones' => $movimiento->observaciones,
+                        'total' => $movimiento->valor_total,
+                        'asiento_id' => $movimiento->asiento_id
+                    ],
+                    'detalles' => $detalles,
+                    'resumen' => [
+                        'total_productos' => $detalles->count(),
+                        'total_cantidad' => $detalles->sum('cantidad'),
+                        'total_valor' => $detalles->sum('total')
+                    ]
+                ]
+            ]);
+            
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener detalle del movimiento: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Generar vista de impresión de un movimiento
+     */
+    public function print($id)
+    {
+        try {
+            $movimiento = \App\Models\Movimiento::with([
+                'bodega:id,nombre,codigo,ubicacion'
+            ])->findOrFail($id);
+
+            // Obtener bodega destino manualmente si existe
+            $bodegaDestino = null;
+            if ($movimiento->bodega_destino_id) {
+                $bodegaDestino = \App\Models\Bodega::select('id', 'nombre', 'codigo', 'ubicacion')
+                    ->find($movimiento->bodega_destino_id);
+            }
+
+            $detalles = \App\Models\MovimientoDetalle::where('movimiento_id', $id)
+                ->with(['producto:id,nombre,sku'])
+                ->get();
+
+            // Pasar bodega destino como objeto simulando la relación
+            $movimiento->bodegaOrigen = $movimiento->bodega;
+            $movimiento->bodegaDestino = $bodegaDestino;
+            $movimiento->numero = $movimiento->numero_documento ?? $movimiento->id;
+
+            return view('movimientos.print', compact('movimiento', 'detalles'));
+            
+        } catch (\Exception $e) {
+            return back()->with('error', 'Error al generar impresión: ' . $e->getMessage());
+        }
+    }
 }

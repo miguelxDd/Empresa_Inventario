@@ -34,11 +34,12 @@ Route::get('bodegas-options', [BodegaController::class, 'getOptions'])->name('bo
 Route::get('users-list', [BodegaController::class, 'getUsersList'])->name('users.list');
 
 // Rutas para Movimientos de Inventario
-Route::resource('movimientos', MovimientoInventarioController::class)->only(['index', 'create', 'store']);
+Route::resource('movimientos', MovimientoInventarioController::class)->only(['index', 'create', 'store', 'show']);
 Route::get('movimientos-options', [MovimientoInventarioController::class, 'getFormOptions'])->name('movimientos.options');
 Route::get('movimientos-list', [MovimientoInventarioController::class, 'getMovements'])->name('movimientos.list');
 Route::get('producto-cost', [MovimientoInventarioController::class, 'getProductCost'])->name('producto.cost');
 Route::post('inventarios/movimientos/{id}/confirmar', [MovimientoInventarioController::class, 'confirmar'])->name('movimientos.confirmar');
+Route::get('movimientos/{id}/print', [MovimientoInventarioController::class, 'print'])->name('movimientos.print');
 
 // Rutas de Contabilidad
 Route::prefix('contabilidad')->name('contabilidad.')->group(function () {

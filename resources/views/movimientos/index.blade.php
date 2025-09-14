@@ -267,13 +267,145 @@
     }
 
     function verDetalle(id) {
-        // TODO: Implementar modal de detalle
-        showToast('Funcionalidad en desarrollo', 'info');
+        // Realizar petición AJAX para obtener los datos
+        fetch(`/movimientos/${id}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    mostrarModalDetalle(data.data);
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Error',
+                        text: data.message || 'Error al cargar el detalle del movimiento'
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error',
+                    text: 'Error de conexión al cargar el detalle'
+                });
+            });
+    }
+
+    // Función para mostrar el modal con el detalle
+    function mostrarModalDetalle(data) {
+        const movimiento = data.movimiento;
+        const detalles = data.detalles;
+        const resumen = data.resumen;
+
+        // Construir el contenido del modal
+        let htmlContent = `
+            <div class="row mb-3">
+                <div class="col-md-6">
+                    <strong>Número:</strong> ${movimiento.numero}<br>
+                    <strong>Tipo:</strong> <span class="badge bg-primary">${movimiento.tipo.toUpperCase()}</span><br>
+                    <strong>Estado:</strong> <span class="badge bg-${movimiento.estado === 'confirmado' ? 'success' : 'warning'}">${movimiento.estado.toUpperCase()}</span>
+                </div>
+                <div class="col-md-6">
+                    <strong>Fecha:</strong> ${new Date(movimiento.fecha).toLocaleString()}<br>
+                    <strong>Total:</strong> $${parseFloat(movimiento.total || 0).toLocaleString('es-ES', {minimumFractionDigits: 2})}
+                </div>
+            </div>`;
+
+        // Bodegas
+        if (movimiento.bodega_origen || movimiento.bodega_destino) {
+            htmlContent += `<div class="row mb-3">`;
+            if (movimiento.bodega_origen) {
+                htmlContent += `
+                    <div class="col-md-6">
+                        <h6 class="text-muted">📦 Bodega Origen</h6>
+                        <strong>${movimiento.bodega_origen.nombre}</strong><br>
+                        <small class="text-muted">Código: ${movimiento.bodega_origen.codigo}</small>
+                    </div>`;
+            }
+            if (movimiento.bodega_destino) {
+                htmlContent += `
+                    <div class="col-md-6">
+                        <h6 class="text-muted">📦 Bodega Destino</h6>
+                        <strong>${movimiento.bodega_destino.nombre}</strong><br>
+                        <small class="text-muted">Código: ${movimiento.bodega_destino.codigo}</small>
+                    </div>`;
+            }
+            htmlContent += `</div>`;
+        }
+
+        // Observaciones
+        if (movimiento.observaciones) {
+            htmlContent += `
+                <div class="mb-3">
+                    <strong>Observaciones:</strong><br>
+                    <div class="p-2 bg-light rounded">${movimiento.observaciones}</div>
+                </div>`;
+        }
+
+        // Tabla de productos
+        htmlContent += `
+            <h6 class="mt-4 mb-3">Productos en el Movimiento</h6>
+            <div class="table-responsive">
+                <table class="table table-sm table-striped">
+                    <thead>
+                        <tr>
+                            <th>Código</th>
+                            <th>Producto</th>
+                            <th class="text-center">Cantidad</th>
+                            <th class="text-end">Costo Unit.</th>
+                            <th class="text-end">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+
+        detalles.forEach(detalle => {
+            htmlContent += `
+                <tr>
+                    <td><code>${detalle.producto_codigo}</code></td>
+                    <td>${detalle.producto_nombre}</td>
+                    <td class="text-center">${parseFloat(detalle.cantidad).toLocaleString('es-ES', {minimumFractionDigits: 2})}</td>
+                    <td class="text-end">$${parseFloat(detalle.costo_unitario).toLocaleString('es-ES', {minimumFractionDigits: 2})}</td>
+                    <td class="text-end">$${parseFloat(detalle.total).toLocaleString('es-ES', {minimumFractionDigits: 2})}</td>
+                </tr>`;
+        });
+
+        htmlContent += `
+                    </tbody>
+                    <tfoot class="table-light">
+                        <tr>
+                            <th colspan="2">TOTALES</th>
+                            <th class="text-center">${parseFloat(resumen.total_cantidad).toLocaleString('es-ES', {minimumFractionDigits: 2})}</th>
+                            <th></th>
+                            <th class="text-end">$${parseFloat(resumen.total_valor).toLocaleString('es-ES', {minimumFractionDigits: 2})}</th>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>`;
+
+        // Mostrar el modal
+        Swal.fire({
+            title: `<i class="fas fa-eye"></i> Detalle Movimiento #${movimiento.numero}`,
+            html: htmlContent,
+            width: '80%',
+            showCloseButton: true,
+            showConfirmButton: false,
+            customClass: {
+                container: 'swal-wide'
+            }
+        });
     }
 
     function imprimirMovimiento(id) {
-        // TODO: Implementar impresión
-        showToast('Funcionalidad en desarrollo', 'info');
+        // Abrir nueva ventana para imprimir
+        const printWindow = window.open(`/movimientos/${id}/print`, '_blank', 'width=800,height=600');
+        
+        // Opcional: auto-cerrar la ventana después de imprimir
+        printWindow.onload = function() {
+            // Dar tiempo para que cargue completamente
+            setTimeout(() => {
+                printWindow.focus();
+            }, 500);
+        };
     }
 </script>
 
@@ -289,6 +421,30 @@
     }
     .border-left-info {
         border-left: 4px solid #17a2b8;
+    }
+    
+    /* Estilos para modal ancho de SweetAlert2 */
+    .swal-wide {
+        width: 90% !important;
+        max-width: 1200px !important;
+    }
+    
+    .swal-wide .swal2-popup {
+        font-size: 14px;
+    }
+    
+    .swal-wide .table {
+        font-size: 13px;
+    }
+    
+    .swal-wide .table th,
+    .swal-wide .table td {
+        padding: 8px;
+        vertical-align: middle;
+    }
+    
+    .swal-wide .badge {
+        font-size: 11px;
     }
 </style>
 
