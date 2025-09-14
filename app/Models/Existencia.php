@@ -41,6 +41,8 @@ class Existencia extends Model
 	];
 
 	protected $fillable = [
+		'producto_id',
+		'bodega_id',
 		'cantidad',
 		'costo_promedio',
 		'stock_minimo',

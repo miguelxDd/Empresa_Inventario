@@ -51,6 +51,21 @@ class MovimientoInventarioController extends Controller
         // Debug: registrar los datos recibidos
         Log::info('Datos recibidos en store:', $request->all());
         
+        // Procesar y normalizar las líneas si vienen con índices numéricos
+        if ($request->has('lineas') && is_array($request->lineas)) {
+            $lineasNormalizadas = [];
+            foreach ($request->lineas as $key => $linea) {
+                if (is_array($linea) && isset($linea['producto_id'])) {
+                    $lineasNormalizadas[] = [
+                        'producto_id' => $linea['producto_id'],
+                        'cantidad' => $linea['cantidad'],
+                        'costo_unitario' => $linea['costo_unitario'] ?? null,
+                    ];
+                }
+            }
+            $request->merge(['lineas' => $lineasNormalizadas]);
+        }
+        
         $request->validate([
             'tipo_movimiento' => 'required|in:entrada,salida,ajuste,transferencia',
             'bodega_origen_id' => 'required_if:tipo_movimiento,salida,transferencia|nullable|exists:bodegas,id',
@@ -145,8 +160,34 @@ class MovimientoInventarioController extends Controller
                 'updated_at' => now(),
             ]);
 
-            // TODO: Implementar las líneas de detalle cuando exista la tabla
-            // TODO: Implementar servicio de inventario
+            // Crear las líneas de detalle del movimiento
+            foreach ($request->lineas as $linea) {
+                $costoUnitario = $linea['costo_unitario'] ?? 0;
+                $total = $linea['cantidad'] * $costoUnitario;
+                
+                DB::table('movimiento_detalles')->insert([
+                    'movimiento_id' => $movimiento,
+                    'producto_id' => $linea['producto_id'],
+                    'cantidad' => $linea['cantidad'],
+                    'costo_unitario' => $costoUnitario,
+                    'total' => $total,
+                    'observaciones' => $linea['observaciones'] ?? null,
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+
+            // Crear objeto movimiento para actualizar existencias
+            $movimientoObj = (object) [
+                'id' => $movimiento,
+                'tipo' => $request->tipo_movimiento,
+                'bodega_origen_id' => $request->bodega_origen_id,
+                'bodega_destino_id' => $request->bodega_destino_id,
+            ];
+
+            // Actualizar existencias según el tipo de movimiento
+            $this->actualizarExistencias($movimientoObj, $request->lineas);
+
             $resultado = [
                 'movimiento' => (object) [
                     'id' => $movimiento,
@@ -369,5 +410,80 @@ class MovimientoInventarioController extends Controller
                 'message' => 'Error al confirmar movimiento: ' . $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Actualiza las existencias según el tipo de movimiento
+     */
+    private function actualizarExistencias($movimiento, $detalles)
+    {
+        foreach ($detalles as $detalle) {
+            $producto_id = $detalle['producto_id'];
+            $cantidad = $detalle['cantidad'];
+
+            switch ($movimiento->tipo) {
+                case 'entrada':
+                    // Aumentar stock en bodega destino
+                    $this->actualizarStockBodega($producto_id, $movimiento->bodega_destino_id, $cantidad, 'aumentar');
+                    break;
+
+                case 'salida':
+                    // Disminuir stock en bodega origen
+                    $this->actualizarStockBodega($producto_id, $movimiento->bodega_origen_id, $cantidad, 'disminuir');
+                    break;
+
+                case 'transferencia':
+                    // Disminuir stock en bodega origen
+                    $this->actualizarStockBodega($producto_id, $movimiento->bodega_origen_id, $cantidad, 'disminuir');
+                    // Aumentar stock en bodega destino
+                    $this->actualizarStockBodega($producto_id, $movimiento->bodega_destino_id, $cantidad, 'aumentar');
+                    break;
+
+                case 'ajuste':
+                    // Para ajustes, la cantidad puede ser positiva o negativa
+                    $operacion = $cantidad >= 0 ? 'aumentar' : 'disminuir';
+                    $cantidad_abs = abs($cantidad);
+                    $bodega_id = $movimiento->bodega_destino_id ?: $movimiento->bodega_origen_id;
+                    $this->actualizarStockBodega($producto_id, $bodega_id, $cantidad_abs, $operacion);
+                    break;
+            }
+        }
+    }
+
+    /**
+     * Actualiza el stock de un producto en una bodega específica
+     */
+    private function actualizarStockBodega($producto_id, $bodega_id, $cantidad, $operacion)
+    {
+        // Verificar si existe la existencia
+        $existencia = \App\Models\Existencia::where('producto_id', $producto_id)
+            ->where('bodega_id', $bodega_id)
+            ->first();
+
+        if (!$existencia) {
+            // Crear nueva existencia
+            $existencia = new \App\Models\Existencia();
+            $existencia->producto_id = $producto_id;
+            $existencia->bodega_id = $bodega_id;
+            $existencia->cantidad = 0;
+            $existencia->costo_promedio = 0;
+            $existencia->save();
+        }
+
+        // Actualizar cantidad
+        if ($operacion === 'aumentar') {
+            $nuevaCantidad = $existencia->cantidad + $cantidad;
+        } else {
+            $nuevaCantidad = $existencia->cantidad - $cantidad;
+            // Evitar cantidades negativas
+            if ($nuevaCantidad < 0) {
+                $nuevaCantidad = 0;
+            }
+        }
+
+        // Actualizar usando consulta directa para evitar problemas con clave primaria compuesta
+        \App\Models\Existencia::where('producto_id', $producto_id)
+            ->where('bodega_id', $bodega_id)
+            ->update(['cantidad' => $nuevaCantidad]);
     }
 }
