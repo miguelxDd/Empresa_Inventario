@@ -145,7 +145,7 @@ function editarProducto(id) {
                 console.log('Datos del producto:', producto);
                 
                 // Fill basic information
-                $('#sku').val(producto.codigo || '');
+                $('#sku').val(producto.sku || '');
                 $('#nombre').val(producto.nombre || '');
                 $('#descripcion').val(producto.descripcion || '');
                 
@@ -157,8 +157,8 @@ function editarProducto(id) {
                 // Fill prices and stock
                 $('#precio_compra').val(producto.precio_compra || '');
                 $('#precio_venta').val(producto.precio_venta || '');
-                $('#stock_minimo').val(producto.stock_minimo || '');
-                $('#stock_maximo').val(producto.stock_maximo || '');
+                $('#stock_minimo').val(producto.stock_minimo || 0);
+                $('#stock_maximo').val(producto.stock_maximo || 0);
                 
                 // Fill accounting accounts
                 $('#cuenta_inventario_id').val(producto.cuenta_inventario_id || '');

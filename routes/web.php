@@ -5,6 +5,7 @@ use App\Http\Controllers\ProductoController;
 use App\Http\Controllers\BodegaController;
 use App\Http\Controllers\MovimientoInventarioController;
 use App\Http\Controllers\ReporteController;
+use App\Http\Controllers\ContabilidadController;
 use App\Http\Controllers\Api\InventoryMovementController;
 
 Route::get('/', function () {
@@ -37,6 +38,15 @@ Route::resource('movimientos', MovimientoInventarioController::class)->only(['in
 Route::get('movimientos-options', [MovimientoInventarioController::class, 'getFormOptions'])->name('movimientos.options');
 Route::get('movimientos-list', [MovimientoInventarioController::class, 'getMovements'])->name('movimientos.list');
 Route::get('producto-cost', [MovimientoInventarioController::class, 'getProductCost'])->name('producto.cost');
+Route::post('inventarios/movimientos/{id}/confirmar', [MovimientoInventarioController::class, 'confirmar'])->name('movimientos.confirmar');
+
+// Rutas de Contabilidad
+Route::prefix('contabilidad')->name('contabilidad.')->group(function () {
+    Route::get('/mayor', [ContabilidadController::class, 'libroMayor'])->name('mayor');
+    Route::get('/balance-general', [ContabilidadController::class, 'balanceGeneral'])->name('balance-general');
+    Route::get('/conciliacion-inventarios', [ContabilidadController::class, 'conciliacionInventarios'])->name('conciliacion-inventarios');
+    Route::get('/asientos-descuadrados', [ContabilidadController::class, 'asientosDescuadrados'])->name('asientos-descuadrados');
+});
 
 // Rutas para Reportes
 Route::prefix('reportes')->name('reportes.')->group(function () {
@@ -78,6 +88,9 @@ Route::prefix('contabilidad')->name('contabilidad.')->group(function () {
     
     // API para autocomplete de cuentas
     Route::get('/cuentas/search', [\App\Http\Controllers\CuentaController::class, 'search'])->name('cuentas.search');
+    
+    // API para selectores de cuentas contables con filtrado por contexto
+    Route::get('/cuentas/select', [ContabilidadController::class, 'cuentasSelect'])->name('cuentas.select');
 });
 
 // Rutas para probar los modelos generados (API)

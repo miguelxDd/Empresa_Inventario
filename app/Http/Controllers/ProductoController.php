@@ -7,8 +7,7 @@ use App\Models\Categoria;
 use App\Models\Unidade;
 use App\Models\Cuenta;
 use App\Models\Existencia;
-use App\Http\Requests\StoreProductoRequest;
-use App\Http\Requests\UpdateProductoRequest;
+use App\Http\Requests\ProductoRequest;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 
@@ -60,7 +59,7 @@ class ProductoController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-    public function store(StoreProductoRequest $request)
+    public function store(ProductoRequest $request)
     {
         try {
             $data = $request->validated();
@@ -125,7 +124,7 @@ class ProductoController extends Controller
     /**
      * Update the specified resource in storage.
      */
-    public function update(UpdateProductoRequest $request, Producto $producto)
+    public function update(ProductoRequest $request, Producto $producto)
     {
         try {
             $data = $request->validated();

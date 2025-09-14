@@ -4,6 +4,28 @@
 
 @push('styles')
 <link href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<link href="https://cdn.jsdelivr.net/npm/select2-bootstrap-5-theme@1.3.0/dist/select2-bootstrap-5-theme.min.css" rel="stylesheet" />
+<style>
+.account-option.disabled {
+    color: #6c757d !important;
+    cursor: not-allowed !important;
+    background-color: #f8f9fa !important;
+}
+
+.account-option.disabled:hover {
+    background-color: #f8f9fa !important;
+}
+
+.select2-results__option[aria-disabled="true"] {
+    cursor: not-allowed !important;
+    background-color: #f8f9fa !important;
+}
+
+.select2-container--bootstrap-5 .select2-selection {
+    font-size: 0.875rem;
+}
+</style>
 @endpush
 
 @section('header')
@@ -267,7 +289,8 @@ window.productosUrls = {
                             </div>
                             
                             <div class="form-check mb-3">
-                                <input class="form-check-input" type="checkbox" id="activo" name="activo" checked>
+                                <input type="hidden" name="activo" value="0">
+                                <input class="form-check-input" type="checkbox" id="activo" name="activo" value="1" checked>
                                 <label class="form-check-label" for="activo">
                                     Producto Activo
                                 </label>
@@ -302,7 +325,7 @@ window.productosUrls = {
                         <div class="col-md-3">
                             <div class="mb-3">
                                 <label for="stock_minimo" class="form-label">Stock Mínimo</label>
-                                <input type="number" class="form-control" id="stock_minimo" name="stock_minimo" step="0.01" min="0">
+                                <input type="number" class="form-control" id="stock_minimo" name="stock_minimo" step="1" min="0">
                                 <div class="invalid-feedback"></div>
                             </div>
                         </div>
@@ -310,7 +333,7 @@ window.productosUrls = {
                         <div class="col-md-3">
                             <div class="mb-3">
                                 <label for="stock_maximo" class="form-label">Stock Máximo</label>
-                                <input type="number" class="form-control" id="stock_maximo" name="stock_maximo" step="0.01" min="0">
+                                <input type="number" class="form-control" id="stock_maximo" name="stock_maximo" step="1" min="0">
                                 <div class="invalid-feedback"></div>
                             </div>
                         </div>
@@ -410,6 +433,11 @@ window.productosUrls = {
         
         // Form submission
         $('#productoForm').on('submit', handleFormSubmit);
+        
+        // Initialize account selectors when modal is shown
+        $('#productoModal').on('shown.bs.modal', function () {
+            initializeAccountSelectors();
+        });
     });
 
     function initializeTable() {
@@ -485,15 +513,8 @@ window.productosUrls = {
                         unidadSelect.append(`<option value="${unidade.id}">${unidade.nombre} (${unidade.abreviatura || ''})</option>`);
                     });
 
-                    // Load accounts
-                    const cuentaSelects = ['#cuenta_inventario_id', '#cuenta_costo_id', '#cuenta_contraparte_id'];
-                    cuentaSelects.forEach(function(selector) {
-                        const select = $(selector);
-                        select.empty().append('<option value="">Seleccionar cuenta...</option>');
-                        response.data.cuentas.forEach(function(cuenta) {
-                            select.append(`<option value="${cuenta.id}">${cuenta.codigo} - ${cuenta.nombre}</option>`);
-                        });
-                    });
+                    // Load accounts with Select2
+                    initializeAccountSelectors();
                 }
             })
             .fail(handleAjaxError);
@@ -514,11 +535,135 @@ window.productosUrls = {
             });
     }
 
+    function initializeAccountSelectors() {
+        console.log('Inicializando selectores de cuentas...');
+        
+        // Configuración para cuenta de inventario (solo cuentas de activo)
+        $('#cuenta_inventario_id').select2({
+            theme: 'bootstrap-5',
+            placeholder: 'Seleccionar cuenta de inventario...',
+            allowClear: true,
+            ajax: {
+                url: '{{ route("contabilidad.cuentas.select") }}',
+                dataType: 'json',
+                delay: 250,
+                data: function (params) {
+                    return {
+                        q: params.term || '',
+                        contexto: 'inventario'
+                    };
+                },
+                processResults: function (data) {
+                    return {
+                        results: data.cuentas
+                    };
+                },
+                cache: true
+            },
+            templateResult: formatAccountOption,
+            templateSelection: formatAccountSelection,
+            escapeMarkup: function (markup) { return markup; }
+        });
+
+        // Configuración para cuenta de costo (solo cuentas de gasto)
+        $('#cuenta_costo_id').select2({
+            theme: 'bootstrap-5',
+            placeholder: 'Seleccionar cuenta de costo...',
+            allowClear: true,
+            ajax: {
+                url: '{{ route("contabilidad.cuentas.select") }}',
+                dataType: 'json',
+                delay: 250,
+                data: function (params) {
+                    return {
+                        q: params.term || '',
+                        contexto: 'costo'
+                    };
+                },
+                processResults: function (data) {
+                    return {
+                        results: data.cuentas
+                    };
+                },
+                cache: true
+            },
+            templateResult: formatAccountOption,
+            templateSelection: formatAccountSelection,
+            escapeMarkup: function (markup) { return markup; }
+        });
+
+        // Configuración para cuenta de contraparte (todas las cuentas)
+        $('#cuenta_contraparte_id').select2({
+            theme: 'bootstrap-5',
+            placeholder: 'Seleccionar cuenta de contraparte...',
+            allowClear: true,
+            ajax: {
+                url: '{{ route("contabilidad.cuentas.select") }}',
+                dataType: 'json',
+                delay: 250,
+                data: function (params) {
+                    return {
+                        q: params.term || '',
+                        contexto: 'contraparte'
+                    };
+                },
+                processResults: function (data) {
+                    return {
+                        results: data.cuentas
+                    };
+                },
+                cache: true
+            },
+            templateResult: formatAccountOption,
+            templateSelection: formatAccountSelection,
+            escapeMarkup: function (markup) { return markup; }
+        });
+    }
+
+    function formatAccountOption(cuenta) {
+        if (cuenta.loading) {
+            return cuenta.text;
+        }
+
+        // Si no es una cuenta hoja (tiene subcuentas), deshabilitar selección
+        const disabled = !cuenta.es_hoja ? 'disabled' : '';
+        const indentation = '&nbsp;'.repeat(cuenta.nivel * 4);
+        const icon = cuenta.es_hoja ? '<i class="fas fa-file-alt text-muted me-1"></i>' : '<i class="fas fa-folder text-muted me-1"></i>';
+        
+        return `
+            <div class="account-option ${disabled}" ${disabled ? 'title="Solo se pueden seleccionar cuentas sin subcuentas"' : ''}>
+                ${indentation}${icon}
+                <strong>${cuenta.codigo}</strong> - ${cuenta.nombre}
+                ${cuenta.es_hoja ? '' : ' <small class="text-muted">(contiene subcuentas)</small>'}
+            </div>
+        `;
+    }
+
+    function formatAccountSelection(cuenta) {
+        return cuenta.text || `${cuenta.codigo} - ${cuenta.nombre}`;
+    }
+
+    function resetAccountSelectors() {
+        // Destruir selectores existentes si existen
+        try {
+            $('#cuenta_inventario_id, #cuenta_costo_id, #cuenta_contraparte_id').select2('destroy');
+        } catch (e) {
+            // Ignorar errores si Select2 no estaba inicializado
+        }
+        
+        // Limpiar valores
+        $('#cuenta_inventario_id, #cuenta_costo_id, #cuenta_contraparte_id').val(null);
+        
+        // Re-inicializar
+        initializeAccountSelectors();
+    }
+
     function nuevoProducto() {
         editingProductId = null;
         $('#productoForm')[0].reset();
         $('#productoModalLabel').html('<i class="fas fa-box me-2"></i>Nuevo Producto');
         clearFormErrors();
+        
         $('#productoModal').modal('show');
     }
 
@@ -531,20 +676,34 @@ window.productosUrls = {
                 if (response.success) {
                     const producto = response.data.producto;
                     
-                    // Fill form
-                    $('#sku').val(producto.codigo);
+                    // Fill form fields with correct mapping
+                    $('#sku').val(producto.sku);
                     $('#nombre').val(producto.nombre);
                     $('#descripcion').val(producto.descripcion);
                     $('#categoria_id').val(producto.categoria_id);
                     $('#unidad_id').val(producto.unidad_id);
-                    $('#precio_compra').val(producto.precio_compra);
+                    $('#precio_compra').val(producto.precio_compra_promedio);
                     $('#precio_venta').val(producto.precio_venta);
-                    $('#stock_minimo').val(producto.stock_minimo);
-                    $('#stock_maximo').val(producto.stock_maximo);
+                    // No hay stock_minimo/stock_maximo en la tabla productos
                     $('#cuenta_inventario_id').val(producto.cuenta_inventario_id);
                     $('#cuenta_costo_id').val(producto.cuenta_costo_id);
                     $('#cuenta_contraparte_id').val(producto.cuenta_contraparte_id);
                     $('#activo').prop('checked', producto.activo);
+                    
+                    // Trigger change events for Select2 dropdowns
+                    $('#categoria_id').trigger('change');
+                    $('#unidad_id').trigger('change');
+                    
+                    // Load and set account selectors
+                    if (producto.cuenta_inventario_id) {
+                        $('#cuenta_inventario_id').trigger('change');
+                    }
+                    if (producto.cuenta_costo_id) {
+                        $('#cuenta_costo_id').trigger('change');
+                    }
+                    if (producto.cuenta_contraparte_id) {
+                        $('#cuenta_contraparte_id').trigger('change');
+                    }
                     
                     $('#productoModalLabel').html('<i class="fas fa-edit me-2"></i>Editar Producto');
                     clearFormErrors();
@@ -562,6 +721,7 @@ window.productosUrls = {
         e.preventDefault();
         
         const formData = new FormData(this);
+        
         const url = editingProductId ? 
             `{{ route("productos.index") }}/${editingProductId}` : 
             '{{ route("productos.store") }}';
@@ -764,6 +924,151 @@ window.productosUrls = {
 
 @push('scripts')
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <script src="{{ asset('js/app-utils.js') }}"></script>
+
+<script>
+// Initialize account selectors when modal is shown
+$(document).ready(function() {
+    $('#productoModal').on('shown.bs.modal', function () {
+        initializeAccountSelectors();
+    });
+});
+
+function initializeAccountSelectors() {
+    console.log('Inicializando selectores de cuentas...');
+    
+    // Destruir selectores existentes si existen
+    try {
+        $('#cuenta_inventario_id, #cuenta_costo_id, #cuenta_contraparte_id').select2('destroy');
+    } catch (e) {
+        // Ignorar errores si Select2 no estaba inicializado
+    }
+    
+    // Configuración para cuenta de inventario (solo cuentas de activo)
+    $('#cuenta_inventario_id').select2({
+        theme: 'bootstrap-5',
+        placeholder: 'Seleccionar cuenta de inventario...',
+        allowClear: true,
+        dropdownParent: $('#productoModal'),
+        ajax: {
+            url: '{{ route("contabilidad.cuentas.select") }}',
+            dataType: 'json',
+            delay: 250,
+            data: function (params) {
+                return {
+                    q: params.term || '',
+                    contexto: 'inventario'
+                };
+            },
+            processResults: function (data) {
+                return {
+                    results: data.map(function(cuenta) {
+                        return {
+                            id: cuenta.id,
+                            text: cuenta.text,
+                            disabled: cuenta.disabled,
+                            es_hoja: cuenta.es_hoja
+                        };
+                    })
+                };
+            },
+            cache: true
+        },
+        templateResult: formatAccountOption,
+        templateSelection: formatAccountSelection
+    });
+
+    // Configuración para cuenta de costo (solo cuentas de gasto)
+    $('#cuenta_costo_id').select2({
+        theme: 'bootstrap-5',
+        placeholder: 'Seleccionar cuenta de costo...',
+        allowClear: true,
+        dropdownParent: $('#productoModal'),
+        ajax: {
+            url: '{{ route("contabilidad.cuentas.select") }}',
+            dataType: 'json',
+            delay: 250,
+            data: function (params) {
+                return {
+                    q: params.term || '',
+                    contexto: 'costo'
+                };
+            },
+            processResults: function (data) {
+                return {
+                    results: data.map(function(cuenta) {
+                        return {
+                            id: cuenta.id,
+                            text: cuenta.text,
+                            disabled: cuenta.disabled,
+                            es_hoja: cuenta.es_hoja
+                        };
+                    })
+                };
+            },
+            cache: true
+        },
+        templateResult: formatAccountOption,
+        templateSelection: formatAccountSelection
+    });
+
+    // Configuración para cuenta de contraparte (todas las cuentas)
+    $('#cuenta_contraparte_id').select2({
+        theme: 'bootstrap-5',
+        placeholder: 'Seleccionar cuenta de contraparte...',
+        allowClear: true,
+        dropdownParent: $('#productoModal'),
+        ajax: {
+            url: '{{ route("contabilidad.cuentas.select") }}',
+            dataType: 'json',
+            delay: 250,
+            data: function (params) {
+                return {
+                    q: params.term || '',
+                    contexto: 'contraparte'
+                };
+            },
+            processResults: function (data) {
+                return {
+                    results: data.map(function(cuenta) {
+                        return {
+                            id: cuenta.id,
+                            text: cuenta.text,
+                            disabled: cuenta.disabled,
+                            es_hoja: cuenta.es_hoja
+                        };
+                    })
+                };
+            },
+            cache: true
+        },
+        templateResult: formatAccountOption,
+        templateSelection: formatAccountSelection
+    });
+}
+
+function formatAccountOption(cuenta) {
+    if (cuenta.loading) {
+        return cuenta.text;
+    }
+
+    if (cuenta.disabled) {
+        // Crear elemento deshabilitado para cuentas padre
+        var $option = $('<div class="text-muted" style="font-style: italic; cursor: not-allowed;">');
+        $option.text(cuenta.text + ' (contiene subcuentas)');
+        return $option[0];
+    } else {
+        // Crear elemento normal para cuentas hoja
+        var $option = $('<div>');
+        $option.text(cuenta.text);
+        return $option[0];
+    }
+}
+
+function formatAccountSelection(cuenta) {
+    return cuenta.text || `${cuenta.codigo} - ${cuenta.nombre}`;
+}
+</script>
 @endpush
 @endsection

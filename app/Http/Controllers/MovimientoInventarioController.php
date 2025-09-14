@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Bodega;
 use App\Models\Producto;
+use App\Models\Movimiento;
 // use App\Services\InventoryMovementService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -98,6 +99,30 @@ class MovimientoInventarioController extends Controller
             ];
 
             // Crear y contabilizar el movimiento
+            // Calcular el valor total del movimiento
+            $valorTotal = 0;
+            foreach ($request->lineas as $linea) {
+                if (isset($linea['costo_unitario']) && isset($linea['cantidad'])) {
+                    $valorTotal += $linea['cantidad'] * $linea['costo_unitario'];
+                }
+            }
+
+            // Crear el asiento contable
+            $numeroAsiento = 'AS-' . date('Y') . '-' . str_pad(random_int(1, 999), 3, '0', STR_PAD_LEFT);
+            $asientoId = DB::table('asientos')->insertGetId([
+                'fecha' => now()->format('Y-m-d'),
+                'numero' => $numeroAsiento,
+                'descripcion' => "Movimiento de inventario - {$request->tipo_movimiento} - {$request->observaciones}",
+                'origen_tabla' => 'movimientos',
+                'origen_id' => null, // Se actualizará después
+                'estado' => 'confirmado',
+                'total_debe' => $valorTotal,
+                'total_haber' => $valorTotal,
+                'created_by' => 1, // Usuario temporal
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
             // Crear el movimiento en la base de datos
             $movimiento = DB::table('movimientos')->insertGetId([
                 'fecha' => now()->format('Y-m-d'),
@@ -107,9 +132,16 @@ class MovimientoInventarioController extends Controller
                 'estado' => 'confirmado',
                 'referencia' => 'MOV-' . date('Y') . '-' . str_pad(random_int(1, 999), 3, '0', STR_PAD_LEFT),
                 'observaciones' => $request->observaciones,
-                'valor_total' => 0, // Temporal
+                'valor_total' => $valorTotal,
+                'asiento_id' => $asientoId,
                 'created_by' => 1, // Usuario temporal
                 'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            // Actualizar el asiento con la referencia al movimiento
+            DB::table('asientos')->where('id', $asientoId)->update([
+                'origen_id' => $movimiento,
                 'updated_at' => now(),
             ]);
 
@@ -121,8 +153,8 @@ class MovimientoInventarioController extends Controller
                     'tipo_movimiento' => $request->tipo_movimiento
                 ],
                 'asiento' => (object) [
-                    'id' => rand(100, 999),
-                    'numero' => 'AS-' . date('Y') . '-' . rand(100, 999)
+                    'id' => $asientoId,
+                    'numero' => $numeroAsiento
                 ]
             ];
 
@@ -299,6 +331,42 @@ class MovimientoInventarioController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Error al obtener los movimientos: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Confirmar un movimiento de inventario
+     * POST /inventarios/movimientos/{id}/confirmar
+     */
+    public function confirmar(Request $request, $id): JsonResponse
+    {
+        try {
+            $movimiento = Movimiento::with('detalles.producto')->findOrFail($id);
+
+            if ($movimiento->estado !== 'borrador') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Solo se pueden confirmar movimientos en estado borrador'
+                ], 400);
+            }
+
+            // El observer se encargará de procesar contablemente
+            $movimiento->update(['estado' => 'confirmado']);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Movimiento confirmado exitosamente',
+                'data' => [
+                    'movimiento_id' => $movimiento->id,
+                    'asiento_id' => $movimiento->asiento_id,
+                    'estado' => $movimiento->estado
+                ]
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al confirmar movimiento: ' . $e->getMessage()
             ], 500);
         }
     }
