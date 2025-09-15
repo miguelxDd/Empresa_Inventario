@@ -1,1 +1,0 @@
-'Cuenta Contraparte ID: ' . (\$producto- ?: 'NO ASIGNADA') . PHP_EOL;

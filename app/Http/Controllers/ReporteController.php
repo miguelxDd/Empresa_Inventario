@@ -9,6 +9,7 @@ use App\Models\Movimiento;
 use App\Models\MovimientoDetalle;
 use App\Models\Asiento;
 use App\Models\Categoria;
+use App\Models\Cuenta;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
@@ -279,6 +280,9 @@ class ReporteController extends Controller
             $categorias = Categoria::where('activa', true)
                 ->orderBy('nombre')
                 ->get(['id', 'nombre']);
+            
+            $cuentas = Cuenta::orderBy('codigo')
+                ->get(['id', 'codigo', 'nombre']);
 
             return response()->json([
                 'success' => true,
@@ -286,6 +290,7 @@ class ReporteController extends Controller
                     'productos' => $productos,
                     'bodegas' => $bodegas,
                     'categorias' => $categorias,
+                    'cuentas' => $cuentas,
                     'estadisticas' => [
                         'total_productos' => $totalProductos,
                         'total_bodegas' => $totalBodegas,

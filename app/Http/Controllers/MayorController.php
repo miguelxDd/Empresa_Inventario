@@ -20,24 +20,124 @@ class MayorController extends Controller
     }
 
     /**
-     * Obtener datos del libro mayor para DataTables
+     * Obtener datos del libro mayor
      */
     public function getData(Request $request)
     {
-        $request->validate([
+        // Validación base
+        $rules = [
             'fecha_inicio' => 'required|date',
             'fecha_fin' => 'required|date|after_or_equal:fecha_inicio',
-            'cuenta_id' => 'required|exists:cuentas,id',
-        ]);
+            'tipo_reporte' => 'required|in:general,cuenta',
+        ];
+
+        // Solo validar cuenta_id si el tipo es 'cuenta'
+        if ($request->tipo_reporte === 'cuenta') {
+            $rules['cuenta_id'] = 'required|exists:cuentas,id';
+        }
+
+        $request->validate($rules);
 
         $fechaInicio = $request->fecha_inicio;
         $fechaFin = $request->fecha_fin;
+        $tipoReporte = $request->tipo_reporte;
         $cuentaId = $request->cuenta_id;
 
-        // Obtener información de la cuenta
-        $cuenta = Cuenta::find($cuentaId);
+        try {
+            if ($tipoReporte === 'general') {
+                return $this->getMayorGeneral($fechaInicio, $fechaFin);
+            } else {
+                return $this->getMayorCuenta($fechaInicio, $fechaFin, $cuentaId);
+            }
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al generar el reporte: ' . $e->getMessage()
+            ], 500);
+        }
+    }
 
-        // Obtener saldo inicial (movimientos anteriores a la fecha de inicio)
+    /**
+     * Obtener Mayor General (todas las cuentas)
+     */
+    private function getMayorGeneral($fechaInicio, $fechaFin)
+    {
+        // Obtener todas las cuentas que tienen movimientos en el período o saldo inicial
+        $cuentasConMovimientos = DB::table('asientos as a')
+            ->join('asientos_detalle as ad', 'a.id', '=', 'ad.asiento_id')
+            ->join('cuentas as c', 'ad.cuenta_id', '=', 'c.id')
+            ->where('a.estado', 'confirmado')
+            ->where(function($query) use ($fechaInicio, $fechaFin) {
+                $query->whereBetween('a.fecha', [$fechaInicio, $fechaFin])
+                      ->orWhere('a.fecha', '<', $fechaInicio);
+            })
+            ->select('c.id', 'c.codigo', 'c.nombre', 'c.tipo')
+            ->distinct()
+            ->orderBy('c.codigo')
+            ->get();
+
+        $cuentasData = [];
+        $totalGeneralDebe = 0;
+        $totalGeneralHaber = 0;
+
+        foreach ($cuentasConMovimientos as $cuenta) {
+            $dataCuenta = $this->procesarCuenta($cuenta->id, $fechaInicio, $fechaFin);
+            
+            if ($dataCuenta['tiene_movimientos'] || $dataCuenta['saldo_inicial'] != 0) {
+                $dataCuenta['codigo'] = $cuenta->codigo;
+                $dataCuenta['nombre'] = $cuenta->nombre;
+                $dataCuenta['tipo'] = $cuenta->tipo;
+                
+                $cuentasData[] = $dataCuenta;
+                $totalGeneralDebe += $dataCuenta['total_debe'];
+                $totalGeneralHaber += $dataCuenta['total_haber'];
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'cuentas' => $cuentasData,
+                'resumen_general' => [
+                    'total_debe' => $totalGeneralDebe,
+                    'total_haber' => $totalGeneralHaber,
+                    'diferencia' => $totalGeneralDebe - $totalGeneralHaber
+                ]
+            ]
+        ]);
+    }
+
+    /**
+     * Obtener Mayor por Cuenta específica
+     */
+    private function getMayorCuenta($fechaInicio, $fechaFin, $cuentaId)
+    {
+        $cuenta = Cuenta::find($cuentaId);
+        $dataCuenta = $this->procesarCuenta($cuentaId, $fechaInicio, $fechaFin);
+        
+        $dataCuenta['codigo'] = $cuenta->codigo;
+        $dataCuenta['nombre'] = $cuenta->nombre;
+        $dataCuenta['tipo'] = $cuenta->tipo;
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'cuenta' => $dataCuenta,
+                'cuenta_info' => [
+                    'codigo' => $cuenta->codigo,
+                    'nombre' => $cuenta->nombre,
+                    'tipo' => $cuenta->tipo
+                ]
+            ]
+        ]);
+    }
+
+    /**
+     * Procesar datos de una cuenta específica
+     */
+    private function procesarCuenta($cuentaId, $fechaInicio, $fechaFin)
+    {
+        // Obtener saldo inicial
         $saldoInicial = DB::table('asientos as a')
             ->join('asientos_detalle as ad', 'a.id', '=', 'ad.asiento_id')
             ->where('ad.cuenta_id', $cuentaId)
@@ -64,62 +164,39 @@ class MayorController extends Controller
             ->orderBy('a.numero')
             ->get();
 
-        // Calcular saldos acumulados
+        // Procesar movimientos y calcular saldos acumulados
         $saldoAcumulado = $saldoInicial;
-        $data = collect();
+        $movimientosProcesados = [];
+        $totalDebe = 0;
+        $totalHaber = 0;
 
-        // Agregar fila de saldo inicial si existe
-        if ($saldoInicial != 0) {
-            $data->push([
-                'fecha' => '',
-                'numero' => '',
-                'debe' => '',
-                'haber' => '',
-                'saldo' => number_format($saldoInicial, 2),
-                'concepto' => 'SALDO INICIAL',
-                'acciones' => ''
-            ]);
-        }
-
-        // Procesar movimientos
         foreach ($movimientos as $movimiento) {
-            $saldoAcumulado += ($movimiento->debe - $movimiento->haber);
+            $debe = floatval($movimiento->debe);
+            $haber = floatval($movimiento->haber);
             
-            $data->push([
+            $saldoAcumulado += ($debe - $haber);
+            $totalDebe += $debe;
+            $totalHaber += $haber;
+            
+            $movimientosProcesados[] = [
+                'asiento_id' => $movimiento->asiento_id,
                 'fecha' => Carbon::parse($movimiento->fecha)->format('d/m/Y'),
                 'numero' => $movimiento->numero,
-                'debe' => $movimiento->debe > 0 ? number_format($movimiento->debe, 2) : '',
-                'haber' => $movimiento->haber > 0 ? number_format($movimiento->haber, 2) : '',
-                'saldo' => number_format($saldoAcumulado, 2),
-                'concepto' => $movimiento->concepto ?? '',
-                'acciones' => '<a href="#" onclick="verAsiento(' . $movimiento->asiento_id . ')" 
-                                 class="btn btn-sm btn-outline-primary" title="Ver Asiento">
-                                 <i class="fas fa-eye"></i>
-                               </a>'
-            ]);
+                'debe' => $debe,
+                'haber' => $haber,
+                'saldo_acumulado' => $saldoAcumulado,
+                'concepto' => $movimiento->concepto ?? ''
+            ];
         }
 
-        // Calcular totales del período
-        $totalDebe = $movimientos->sum('debe');
-        $totalHaber = $movimientos->sum('haber');
-
-        return response()->json([
-            'draw' => intval($request->draw),
-            'recordsTotal' => $data->count(),
-            'recordsFiltered' => $data->count(),
-            'data' => $data,
-            'cuenta' => [
-                'codigo' => $cuenta->codigo,
-                'nombre' => $cuenta->nombre,
-                'tipo' => $cuenta->tipo
-            ],
-            'totales' => [
-                'debe' => number_format($totalDebe, 2),
-                'haber' => number_format($totalHaber, 2),
-                'saldo_inicial' => number_format($saldoInicial, 2),
-                'saldo_final' => number_format($saldoAcumulado, 2),
-            ]
-        ]);
+        return [
+            'saldo_inicial' => $saldoInicial,
+            'movimientos' => $movimientosProcesados,
+            'total_debe' => $totalDebe,
+            'total_haber' => $totalHaber,
+            'saldo_final' => $saldoAcumulado,
+            'tiene_movimientos' => count($movimientosProcesados) > 0
+        ];
     }
 
     /**
@@ -130,13 +207,116 @@ class MayorController extends Controller
         $request->validate([
             'fecha_inicio' => 'required|date',
             'fecha_fin' => 'required|date|after_or_equal:fecha_inicio',
-            'cuenta_id' => 'required|exists:cuentas,id',
+            'tipo_reporte' => 'required|in:general,cuenta',
+            'cuenta_id' => 'required_if:tipo_reporte,cuenta|exists:cuentas,id',
         ]);
 
         $fechaInicio = $request->fecha_inicio;
         $fechaFin = $request->fecha_fin;
+        $tipoReporte = $request->tipo_reporte;
         $cuentaId = $request->cuenta_id;
 
+        if ($tipoReporte === 'general') {
+            return $this->exportMayorGeneral($fechaInicio, $fechaFin);
+        } else {
+            return $this->exportMayorCuenta($fechaInicio, $fechaFin, $cuentaId);
+        }
+    }
+
+    /**
+     * Exportar Mayor General a CSV
+     */
+    private function exportMayorGeneral($fechaInicio, $fechaFin)
+    {
+        // Obtener datos del mayor general
+        $response = $this->getMayorGeneral($fechaInicio, $fechaFin);
+        $data = json_decode($response->getContent(), true);
+        $cuentas = $data['data']['cuentas'];
+
+        $filename = 'libro_mayor_general_' . 
+                   str_replace('-', '', $fechaInicio) . '_' . 
+                   str_replace('-', '', $fechaFin) . '.csv';
+
+        $headers = [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ];
+
+        $callback = function() use ($cuentas, $fechaInicio, $fechaFin, $data) {
+            $file = fopen('php://output', 'w');
+            
+            // BOM para UTF-8
+            fprintf($file, chr(0xEF).chr(0xBB).chr(0xBF));
+            
+            // Información del reporte
+            fputcsv($file, ['LIBRO MAYOR GENERAL'], ';');
+            fputcsv($file, ['Período: ' . Carbon::parse($fechaInicio)->format('d/m/Y') . ' al ' . Carbon::parse($fechaFin)->format('d/m/Y')], ';');
+            fputcsv($file, ['Total Debe: ' . number_format($data['data']['resumen_general']['total_debe'], 2, ',', '.')], ';');
+            fputcsv($file, ['Total Haber: ' . number_format($data['data']['resumen_general']['total_haber'], 2, ',', '.')], ';');
+            fputcsv($file, [], ';'); // Línea vacía
+
+            foreach ($cuentas as $cuenta) {
+                // Información de la cuenta
+                fputcsv($file, [], ';'); // Línea vacía
+                fputcsv($file, ['CUENTA: ' . $cuenta['codigo'] . ' - ' . $cuenta['nombre']], ';');
+                fputcsv($file, ['TIPO: ' . $cuenta['tipo']], ';');
+                
+                // Encabezados de movimientos
+                fputcsv($file, [
+                    'Fecha',
+                    'Número',
+                    'Debe',
+                    'Haber',
+                    'Saldo',
+                    'Concepto'
+                ], ';');
+
+                // Saldo inicial
+                if ($cuenta['saldo_inicial'] != 0) {
+                    fputcsv($file, [
+                        '',
+                        '',
+                        '',
+                        '',
+                        number_format($cuenta['saldo_inicial'], 2, ',', '.'),
+                        'SALDO INICIAL'
+                    ], ';');
+                }
+
+                // Movimientos
+                foreach ($cuenta['movimientos'] as $movimiento) {
+                    fputcsv($file, [
+                        $movimiento['fecha'],
+                        $movimiento['numero'],
+                        $movimiento['debe'] > 0 ? number_format($movimiento['debe'], 2, ',', '.') : '',
+                        $movimiento['haber'] > 0 ? number_format($movimiento['haber'], 2, ',', '.') : '',
+                        number_format($movimiento['saldo_acumulado'], 2, ',', '.'),
+                        $movimiento['concepto']
+                    ], ';');
+                }
+
+                // Totales de la cuenta
+                fputcsv($file, [
+                    'TOTALES',
+                    '',
+                    number_format($cuenta['total_debe'], 2, ',', '.'),
+                    number_format($cuenta['total_haber'], 2, ',', '.'),
+                    number_format($cuenta['saldo_final'], 2, ',', '.'),
+                    ''
+                ], ';');
+            }
+
+            fclose($file);
+        };
+
+        return response()->stream($callback, 200, $headers);
+    }
+
+    /**
+     * Exportar Mayor por Cuenta a CSV
+     */
+    private function exportMayorCuenta($fechaInicio, $fechaFin, $cuentaId)
+    {
         $cuenta = Cuenta::find($cuentaId);
 
         // Obtener saldo inicial
@@ -181,8 +361,9 @@ class MayorController extends Controller
             fprintf($file, chr(0xEF).chr(0xBB).chr(0xBF));
             
             // Información de la cuenta
-            fputcsv($file, ['LIBRO MAYOR'], ';');
+            fputcsv($file, ['LIBRO MAYOR POR CUENTA'], ';');
             fputcsv($file, ['Cuenta: ' . $cuenta->codigo . ' - ' . $cuenta->nombre], ';');
+            fputcsv($file, ['Tipo: ' . $cuenta->tipo], ';');
             fputcsv($file, ['Período: ' . Carbon::parse($fechaInicio)->format('d/m/Y') . ' al ' . Carbon::parse($fechaFin)->format('d/m/Y')], ';');
             fputcsv($file, [], ';'); // Línea vacía
             

@@ -1,1 +1,0 @@
-'Cuenta Costo ID: ' . (\$producto- ?: 'NO ASIGNADA') . PHP_EOL;
