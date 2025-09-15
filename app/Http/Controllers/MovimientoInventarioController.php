@@ -11,6 +11,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Exception;
 
 class MovimientoInventarioController extends Controller
 {
@@ -160,6 +161,9 @@ class MovimientoInventarioController extends Controller
                 'updated_at' => now(),
             ]);
 
+            // Generar los detalles contables del asiento
+            $this->generarDetallesContables($asientoId, $request->tipo_movimiento, $request->lineas, $request->bodega_origen_id, $request->bodega_destino_id);
+
             // Crear las líneas de detalle del movimiento
             foreach ($request->lineas as $linea) {
                 $costoUnitario = $linea['costo_unitario'] ?? 0;
@@ -234,6 +238,204 @@ class MovimientoInventarioController extends Controller
             return back()->withInput()
                 ->withErrors(['error' => 'Error al crear el movimiento: ' . $e->getMessage()]);
         }
+    }
+
+    /**
+     * Genera los detalles contables del asiento según el tipo de movimiento
+     * Usa las cuentas contables específicas de cada producto
+     */
+    private function generarDetallesContables($asientoId, $tipoMovimiento, $lineas, $bodegaOrigenId, $bodegaDestinoId)
+    {
+        try {
+            $totalDebe = 0;
+            $totalHaber = 0;
+
+            foreach ($lineas as $linea) {
+                $productoId = $linea['producto_id'];
+                $cantidad = $linea['cantidad'];
+                $costoUnitario = $linea['costo_unitario'];
+                $valorLinea = $cantidad * $costoUnitario;
+
+                // Obtener las cuentas contables del producto
+                $producto = DB::table('productos')
+                    ->leftJoin('cuentas as ci', 'productos.cuenta_inventario_id', '=', 'ci.id')
+                    ->leftJoin('cuentas as cc', 'productos.cuenta_costo_id', '=', 'cc.id')
+                    ->leftJoin('cuentas as cp', 'productos.cuenta_contraparte_id', '=', 'cp.id')
+                    ->where('productos.id', $productoId)
+                    ->select(
+                        'productos.nombre as producto_nombre',
+                        'productos.sku as producto_sku',
+                        'ci.id as cuenta_inventario_id', 'ci.nombre as cuenta_inventario_nombre', 'ci.codigo as cuenta_inventario_codigo',
+                        'cc.id as cuenta_costo_id', 'cc.nombre as cuenta_costo_nombre', 'cc.codigo as cuenta_costo_codigo',
+                        'cp.id as cuenta_contraparte_id', 'cp.nombre as cuenta_contraparte_nombre', 'cp.codigo as cuenta_contraparte_codigo'
+                    )
+                    ->first();
+
+                if (!$producto) {
+                    throw new Exception("Producto con ID {$productoId} no encontrado");
+                }
+
+                // Verificar que el producto tenga las cuentas necesarias
+                if (!$producto->cuenta_inventario_id) {
+                    throw new Exception("El producto '{$producto->producto_nombre}' no tiene cuenta de inventario asignada");
+                }
+
+                $conceptoProducto = "[{$producto->producto_sku}] {$producto->producto_nombre}";
+
+                switch ($tipoMovimiento) {
+                    case 'entrada':
+                        // ENTRADA: Dr. Inventario, Cr. Contrapartida (Proveedores/Caja)
+                        $this->insertarDetalleContable(
+                            $asientoId, 
+                            $producto->cuenta_inventario_id, 
+                            $valorLinea, 
+                            0, 
+                            "Entrada inventario: {$conceptoProducto} (Cant: {$cantidad})"
+                        );
+                        $totalDebe += $valorLinea;
+
+                        // Usar cuenta contraparte del producto o buscar una genérica
+                        $cuentaContrapartida = $producto->cuenta_contraparte_id;
+                        if (!$cuentaContrapartida) {
+                            // Buscar cuenta de proveedores genérica
+                            $cuentaGenerica = DB::table('cuentas')->where('tipo', 'PASIVO')->where('codigo', 'like', '22%')->first();
+                            if (!$cuentaGenerica) {
+                                $cuentaGenerica = DB::table('cuentas')->where('tipo', 'ACTIVO')->where('codigo', 'like', '11%')->first();
+                            }
+                            if (!$cuentaGenerica) {
+                                throw new Exception("No se encontró cuenta de contrapartida para entrada de inventario");
+                            }
+                            $cuentaContrapartida = $cuentaGenerica->id;
+                        }
+
+                        $this->insertarDetalleContable(
+                            $asientoId, 
+                            $cuentaContrapartida, 
+                            0, 
+                            $valorLinea, 
+                            "Contrapartida entrada: {$conceptoProducto}"
+                        );
+                        $totalHaber += $valorLinea;
+                        break;
+
+                    case 'salida':
+                        // SALIDA: Dr. Costo de Ventas, Cr. Inventario
+                        if (!$producto->cuenta_costo_id) {
+                            throw new Exception("El producto '{$producto->producto_nombre}' no tiene cuenta de costo asignada");
+                        }
+
+                        $this->insertarDetalleContable(
+                            $asientoId, 
+                            $producto->cuenta_costo_id, 
+                            $valorLinea, 
+                            0, 
+                            "Costo venta: {$conceptoProducto} (Cant: {$cantidad})"
+                        );
+                        $totalDebe += $valorLinea;
+
+                        $this->insertarDetalleContable(
+                            $asientoId, 
+                            $producto->cuenta_inventario_id, 
+                            0, 
+                            $valorLinea, 
+                            "Salida inventario: {$conceptoProducto} (Cant: {$cantidad})"
+                        );
+                        $totalHaber += $valorLinea;
+                        break;
+
+                    case 'ajuste':
+                        // AJUSTE: Dr. Inventario, Cr. Ganancia por ajuste (o viceversa si es negativo)
+                        $this->insertarDetalleContable(
+                            $asientoId, 
+                            $producto->cuenta_inventario_id, 
+                            $valorLinea, 
+                            0, 
+                            "Ajuste inventario: {$conceptoProducto} (Cant: {$cantidad})"
+                        );
+                        $totalDebe += $valorLinea;
+
+                        // Buscar cuenta de ganancias/pérdidas por ajuste
+                        $cuentaAjuste = DB::table('cuentas')->where('tipo', 'INGRESO')->where('codigo', 'like', '42%')->first();
+                        if (!$cuentaAjuste) {
+                            throw new Exception("No se encontró cuenta de ganancias para ajuste de inventario");
+                        }
+
+                        $this->insertarDetalleContable(
+                            $asientoId, 
+                            $cuentaAjuste->id, 
+                            0, 
+                            $valorLinea, 
+                            "Ganancia ajuste: {$conceptoProducto}"
+                        );
+                        $totalHaber += $valorLinea;
+                        break;
+
+                    case 'transferencia':
+                        // TRANSFERENCIA: Dr. Inventario Destino, Cr. Inventario Origen
+                        // Nota: En este caso usamos la misma cuenta de inventario pero con diferentes conceptos
+                        $this->insertarDetalleContable(
+                            $asientoId, 
+                            $producto->cuenta_inventario_id, 
+                            $valorLinea, 
+                            0, 
+                            "Transferencia entrada: {$conceptoProducto} (Cant: {$cantidad}) - Bodega destino"
+                        );
+                        $totalDebe += $valorLinea;
+
+                        $this->insertarDetalleContable(
+                            $asientoId, 
+                            $producto->cuenta_inventario_id, 
+                            0, 
+                            $valorLinea, 
+                            "Transferencia salida: {$conceptoProducto} (Cant: {$cantidad}) - Bodega origen"
+                        );
+                        $totalHaber += $valorLinea;
+                        break;
+
+                    default:
+                        throw new Exception("Tipo de movimiento '{$tipoMovimiento}' no válido para generación de asientos contables");
+                }
+            }
+
+            // Actualizar los totales del asiento
+            $this->actualizarTotalesAsiento($asientoId);
+
+        } catch (Exception $e) {
+            throw new Exception('Error al generar detalles contables: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Inserta un detalle contable en la tabla asientos_detalle
+     */
+    private function insertarDetalleContable($asientoId, $cuentaId, $debe, $haber, $concepto)
+    {
+        DB::table('asientos_detalle')->insert([
+            'asiento_id' => $asientoId,
+            'cuenta_id' => $cuentaId,
+            'debe' => $debe,
+            'haber' => $haber,
+            'concepto' => $concepto,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    /**
+     * Actualiza los totales debe y haber del asiento principal
+     */
+    private function actualizarTotalesAsiento($asientoId)
+    {
+        $totales = DB::table('asientos_detalle')
+            ->where('asiento_id', $asientoId)
+            ->selectRaw('SUM(debe) as total_debe, SUM(haber) as total_haber')
+            ->first();
+
+        DB::table('asientos')->where('id', $asientoId)->update([
+            'total_debe' => $totales->total_debe ?? 0,
+            'total_haber' => $totales->total_haber ?? 0,
+            'updated_at' => now(),
+        ]);
     }
 
     /**

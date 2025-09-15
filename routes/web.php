@@ -58,6 +58,8 @@ Route::prefix('reportes')->name('reportes.')->group(function () {
     // Kardex
     Route::get('/kardex', [ReporteController::class, 'kardex'])->name('kardex');
     Route::post('/kardex/generar', [ReporteController::class, 'generateKardex'])->name('kardex.generar');
+    Route::post('/kardex/pdf', [ReporteController::class, 'downloadKardexPDF'])->name('kardex.pdf');
+    Route::post('/kardex/csv', [ReporteController::class, 'exportKardexCSV'])->name('kardex.csv');
     
     // Existencias
     Route::get('/existencias', [ReporteController::class, 'existencias'])->name('existencias');
@@ -67,6 +69,7 @@ Route::prefix('reportes')->name('reportes.')->group(function () {
     // Asientos Contables
     Route::get('/asientos', [ReporteController::class, 'asientos'])->name('asientos');
     Route::get('/asientos/data', [ReporteController::class, 'getAsientos'])->name('asientos.data');
+    Route::get('/asientos/{id}/detalle', [ReporteController::class, 'getAsientoDetalle'])->name('asientos.detalle');
     
     // Opciones generales
     Route::get('/options', [ReporteController::class, 'getOptions'])->name('options');

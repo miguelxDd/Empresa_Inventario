@@ -1,0 +1,1 @@
+'Producto: ' . \$producto- . ' (SKU: ' . \$producto- . ')' . PHP_EOL;

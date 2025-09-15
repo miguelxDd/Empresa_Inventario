@@ -158,6 +158,8 @@
                             <th>Unidad</th>
                             <th>Bodega</th>
                             <th class="text-end">Cantidad</th>
+                            <th class="text-end">Stock Mín.</th>
+                            <th class="text-end">Stock Máx.</th>
                             <th class="text-end">Costo Promedio</th>
                             <th class="text-end">Valor Total</th>
                             <th>Última Actualización</th>
@@ -200,10 +202,10 @@
         existenciasTable = $('#existenciasTable').DataTable({
             data: [],
             columns: [
-                { data: 'producto_codigo' },
+                { data: 'sku' },
                 { data: 'producto_nombre' },
-                { data: 'categoria_nombre' },
-                { data: 'unidad_display' },
+                { data: 'categoria' },
+                { data: 'unidad' },
                 { 
                     data: null,
                     render: function(data, type, row) {
@@ -214,28 +216,73 @@
                     data: 'cantidad',
                     className: 'text-end',
                     render: function(data, type, row) {
-                        return `<span class="fw-bold">${data}</span>`;
+                        return parseFloat(data).toLocaleString('es-ES', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                        });
+                    }
+                },
+                { 
+                    data: 'stock_minimo',
+                    className: 'text-end',
+                    render: function(data, type, row) {
+                        if (data && parseFloat(data) > 0) {
+                            return parseFloat(data).toLocaleString('es-ES', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
+                            });
+                        }
+                        return '<span class="text-muted">—</span>';
+                    }
+                },
+                { 
+                    data: 'stock_maximo',
+                    className: 'text-end',
+                    render: function(data, type, row) {
+                        if (data && parseFloat(data) > 0) {
+                            return parseFloat(data).toLocaleString('es-ES', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
+                            });
+                        }
+                        return '<span class="text-muted">—</span>';
                     }
                 },
                 { 
                     data: 'costo_promedio',
                     className: 'text-end',
                     render: function(data, type, row) {
-                        return `$${data}`;
+                        return `$${parseFloat(data).toLocaleString('es-ES', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                        })}`;
                     }
                 },
                 { 
                     data: 'valor_total',
                     className: 'text-end',
                     render: function(data, type, row) {
-                        return `<span class="fw-bold text-success">$${data}</span>`;
+                        return `<span class="fw-bold text-success">$${parseFloat(data).toLocaleString('es-ES', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                        })}</span>`;
                     }
                 },
-                { data: 'updated_at' }
+                { 
+                    data: 'updated_at',
+                    render: function(data, type, row) {
+                        if (data) {
+                            const date = new Date(data);
+                            return date.toLocaleDateString('es-ES') + '<br>' + 
+                                   '<small class="text-muted">' + date.toLocaleTimeString('es-ES') + '</small>';
+                        }
+                        return '';
+                    }
+                }
             ],
             order: [[1, 'asc']],
             language: {
-                url: '//cdn.datatables.net/plug-ins/1.13.7/i18n/es-ES.json'
+                url: 'https://cdn.datatables.net/plug-ins/1.13.7/i18n/es-ES.json'
             },
             responsive: true,
             pageLength: 50,
@@ -283,10 +330,10 @@
                 hideLoading();
                 if (response.success) {
                     // Update table
-                    existenciasTable.clear().rows.add(response.data).draw();
+                    existenciasTable.clear().rows.add(response.data.existencias).draw();
                     
                     // Update summary
-                    updateSummary(response.resumen);
+                    updateSummary(response.data.resumen);
                 }
             })
             .fail(function(xhr) {
@@ -297,15 +344,15 @@
 
     function updateSummary(resumen) {
         $('#totalRegistros').text(resumen.total_registros.toLocaleString());
-        $('#totalCantidad').text(resumen.total_cantidad.toLocaleString('es-ES', {
+        $('#totalCantidad').text(resumen.total_cantidad ? resumen.total_cantidad.toLocaleString('es-ES', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        }) : '0');
+        $('#totalValor').text('$' + resumen.valor_total_inventario.toLocaleString('es-ES', {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2
         }));
-        $('#totalValor').text('$' + resumen.total_valor.toLocaleString('es-ES', {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2
-        }));
-        $('#bodegasConStock').text(resumen.bodegas_con_stock.toLocaleString());
+        $('#bodegasConStock').text(resumen.total_bodegas.toLocaleString());
     }
 
     function aplicarFiltros() {

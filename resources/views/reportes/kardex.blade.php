@@ -179,15 +179,15 @@
                             <button class="btn btn-outline-success btn-sm" onclick="exportKardexCSV()">
                                 <i class="fas fa-file-csv me-1"></i>Exportar CSV
                             </button>
-                            <button class="btn btn-outline-primary btn-sm" onclick="printKardex()">
-                                <i class="fas fa-print me-1"></i>Imprimir
+                            <button class="btn btn-outline-danger btn-sm" onclick="downloadKardexPDF()">
+                                <i class="fas fa-file-pdf me-1"></i>Descargar PDF
                             </button>
                         </div>
                     </div>
                     <div class="card-body">
                         <div class="table-responsive">
                             <table class="table table-striped table-hover" id="kardexTable">
-                                <thead class="table-dark">
+                                <thead style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
                                     <tr>
                                         <th>Fecha</th>
                                         <th>Tipo</th>
@@ -304,8 +304,10 @@
     }
 
     function displayKardexResults(data) {
+        console.log('displayKardexResults called with:', data);
+        
         // Update report header
-        $('#reporteProducto').text(`${data.producto.codigo} - ${data.producto.nombre}`);
+        $('#reporteProducto').text(`${data.producto.sku} - ${data.producto.nombre}`);
         $('#reporteBodega').text(data.bodega ? `${data.bodega.codigo} - ${data.bodega.nombre}` : 'Todas las bodegas');
         $('#reportePeriodo').text(`${formatDate(data.periodo.fecha_inicio)} al ${formatDate(data.periodo.fecha_fin)}`);
 
@@ -317,9 +319,13 @@
         $('#valorEntradas').text(`$${data.resumen.valor_total_entradas.toFixed(2)}`);
         $('#valorSalidas').text(`$${data.resumen.valor_total_salidas.toFixed(2)}`);
 
+        console.log('Summary updated');
+
         // Update table
         const tbody = $('#kardexTableBody');
         tbody.empty();
+
+        console.log('Table cleared, movements:', data.movimientos);
 
         // Add initial balance row
         tbody.append(`
@@ -335,9 +341,19 @@
 
         // Add movement rows
         data.movimientos.forEach(function(mov) {
+            console.log('Processing movement:', mov);
             const tipoClass = getTipoMovimientoClass(mov.tipo_movimiento);
-            const valorEntrada = mov.valor_entrada > 0 ? `$${mov.valor_entrada.toFixed(2)}` : '-';
-            const valorSalida = mov.valor_salida > 0 ? `$${mov.valor_salida.toFixed(2)}` : '-';
+            
+            // Convert strings to numbers
+            const entrada = parseFloat(mov.entrada) || 0;
+            const salida = parseFloat(mov.salida) || 0;
+            const saldo = parseFloat(mov.saldo) || 0;
+            const costoUnitario = parseFloat(mov.costo_unitario) || 0;
+            const valorEntrada = parseFloat(mov.valor_entrada) || 0;
+            const valorSalida = parseFloat(mov.valor_salida) || 0;
+            
+            const valorEntradaText = valorEntrada > 0 ? `$${valorEntrada.toFixed(2)}` : '-';
+            const valorSalidaText = valorSalida > 0 ? `$${valorSalida.toFixed(2)}` : '-';
             
             tbody.append(`
                 <tr>
@@ -346,18 +362,22 @@
                     <td>${mov.observaciones || '-'}</td>
                     <td>${mov.bodega_origen || '-'}</td>
                     <td>${mov.bodega_destino || '-'}</td>
-                    <td class="text-end">${mov.entrada > 0 ? mov.entrada.toFixed(2) : '-'}</td>
-                    <td class="text-end">${mov.salida > 0 ? mov.salida.toFixed(2) : '-'}</td>
-                    <td class="text-end"><strong>${mov.saldo.toFixed(2)}</strong></td>
-                    <td class="text-end">$${mov.costo_unitario.toFixed(2)}</td>
-                    <td class="text-end">${mov.valor_entrada > 0 ? valorEntrada : valorSalida}</td>
+                    <td class="text-end">${entrada > 0 ? entrada.toFixed(2) : '-'}</td>
+                    <td class="text-end">${salida > 0 ? salida.toFixed(2) : '-'}</td>
+                    <td class="text-end"><strong>${saldo.toFixed(2)}</strong></td>
+                    <td class="text-end">$${costoUnitario.toFixed(2)}</td>
+                    <td class="text-end">${valorEntrada > 0 ? valorEntradaText : valorSalidaText}</td>
                 </tr>
             `);
         });
 
+        console.log('About to show results');
+        
         // Show results and hide placeholder
         $('#kardexPlaceholder').hide();
         $('#kardexResults').show();
+        
+        console.log('Results should be visible now');
     }
 
     function getTipoMovimientoClass(tipo) {
@@ -405,17 +425,87 @@
             return;
         }
         
-        // TODO: Implementar exportación CSV
-        showToast('Funcionalidad en desarrollo', 'info');
+        // Crear el contenido CSV
+        let csvContent = "data:text/csv;charset=utf-8,";
+        
+        // Headers del CSV
+        csvContent += "Fecha,Tipo,Observaciones,Bodega Origen,Bodega Destino,Entrada,Salida,Saldo,Costo Unitario,Valor\n";
+        
+        // Agregar datos
+        kardexData.movimientos.forEach(function(mov) {
+            const entrada = parseFloat(mov.entrada) || 0;
+            const salida = parseFloat(mov.salida) || 0;
+            const saldo = parseFloat(mov.saldo) || 0;
+            const costoUnitario = parseFloat(mov.costo_unitario) || 0;
+            const valorEntrada = parseFloat(mov.valor_entrada) || 0;
+            const valorSalida = parseFloat(mov.valor_salida) || 0;
+            const valor = valorEntrada > 0 ? valorEntrada : valorSalida;
+            
+            csvContent += `${mov.fecha},${mov.tipo_movimiento},"${mov.observaciones || ''}","${mov.bodega_origen || ''}","${mov.bodega_destino || ''}",${entrada},${salida},${saldo},${costoUnitario},${valor}\n`;
+        });
+        
+        // Crear y descargar el archivo
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `kardex_${kardexData.producto.sku}_${kardexData.periodo.fecha_inicio}_${kardexData.periodo.fecha_fin}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        showToast('CSV exportado exitosamente', 'success');
     }
 
-    function printKardex() {
+    function downloadKardexPDF() {
         if (!kardexData) {
             showToast('Genera primero el kardex', 'warning');
             return;
         }
         
-        window.print();
+        // Crear formulario para enviar los datos al endpoint de PDF
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '{{ route("reportes.kardex.pdf") }}';
+        form.target = '_blank';
+        
+        // Agregar CSRF token
+        const csrfToken = document.createElement('input');
+        csrfToken.type = 'hidden';
+        csrfToken.name = '_token';
+        csrfToken.value = '{{ csrf_token() }}';
+        form.appendChild(csrfToken);
+        
+        // Agregar los parámetros del formulario actual
+        const productoId = document.createElement('input');
+        productoId.type = 'hidden';
+        productoId.name = 'producto_id';
+        productoId.value = $('#producto_id').val();
+        form.appendChild(productoId);
+        
+        const bodegaId = document.createElement('input');
+        bodegaId.type = 'hidden';
+        bodegaId.name = 'bodega_id';
+        bodegaId.value = $('#bodega_id').val() || '';
+        form.appendChild(bodegaId);
+        
+        const fechaInicio = document.createElement('input');
+        fechaInicio.type = 'hidden';
+        fechaInicio.name = 'fecha_inicio';
+        fechaInicio.value = $('#fecha_inicio').val();
+        form.appendChild(fechaInicio);
+        
+        const fechaFin = document.createElement('input');
+        fechaFin.type = 'hidden';
+        fechaFin.name = 'fecha_fin';
+        fechaFin.value = $('#fecha_fin').val();
+        form.appendChild(fechaFin);
+        
+        // Enviar formulario
+        document.body.appendChild(form);
+        form.submit();
+        document.body.removeChild(form);
+        
+        showToast('Generando PDF...', 'info');
     }
 
     function clearFormErrors() {

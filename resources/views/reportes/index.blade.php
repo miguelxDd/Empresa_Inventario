@@ -68,7 +68,7 @@
         <!-- Kardex Report -->
         <div class="col-lg-4 mb-4">
             <div class="card report-card h-100">
-                <div class="card-header bg-primary text-white">
+                <div class="card-header text-white" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
                     <h5 class="mb-0">
                         <i class="fas fa-list-alt me-2"></i>Kardex de Productos
                     </h5>
@@ -85,7 +85,7 @@
                             <li><i class="fas fa-check text-success me-2"></i>Filtro por bodega</li>
                             <li><i class="fas fa-check text-success me-2"></i>Valores de entrada y salida</li>
                         </ul>
-                        <a href="{{ route('reportes.kardex') }}" class="btn btn-primary btn-block">
+                        <a href="{{ route('reportes.kardex') }}" class="btn text-white" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none;">
                             <i class="fas fa-search me-1"></i>Generar Kardex
                         </a>
                     </div>
@@ -96,7 +96,7 @@
         <!-- Existencias Report -->
         <div class="col-lg-4 mb-4">
             <div class="card report-card h-100">
-                <div class="card-header bg-success text-white">
+                <div class="card-header text-white" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
                     <h5 class="mb-0">
                         <i class="fas fa-clipboard-list me-2"></i>Reporte de Existencias
                     </h5>
@@ -113,7 +113,7 @@
                             <li><i class="fas fa-check text-success me-2"></i>Filtros avanzados</li>
                             <li><i class="fas fa-check text-success me-2"></i>Exportación a CSV</li>
                         </ul>
-                        <a href="{{ route('reportes.existencias') }}" class="btn btn-success btn-block">
+                        <a href="{{ route('reportes.existencias') }}" class="btn text-white" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none;">
                             <i class="fas fa-boxes me-1"></i>Ver Existencias
                         </a>
                     </div>
@@ -124,7 +124,7 @@
         <!-- Asientos Contables Report -->
         <div class="col-lg-4 mb-4">
             <div class="card report-card h-100">
-                <div class="card-header bg-info text-white">
+                <div class="card-header text-white" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
                     <h5 class="mb-0">
                         <i class="fas fa-calculator me-2"></i>Asientos Contables
                     </h5>
@@ -141,7 +141,7 @@
                             <li><i class="fas fa-check text-success me-2"></i>Débitos y créditos</li>
                             <li><i class="fas fa-check text-success me-2"></i>Filtros por origen</li>
                         </ul>
-                        <a href="{{ route('reportes.asientos') }}" class="btn btn-info btn-block">
+                        <a href="{{ route('reportes.asientos') }}" class="btn text-white" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none;">
                             <i class="fas fa-file-invoice me-1"></i>Ver Asientos
                         </a>
                     </div>
@@ -193,18 +193,27 @@
         // Cargar estadísticas generales
         $.get('{{ route("reportes.options") }}')
             .done(function(response) {
-                if (response.success) {
-                    $('#totalProductos').text(response.data.productos.length);
-                    $('#totalBodegas').text(response.data.bodegas.length);
+                if (response.success && response.data && response.data.estadisticas) {
+                    // Usar las estadísticas calculadas del backend
+                    $('#totalProductos').text(response.data.estadisticas.total_productos || 0);
+                    $('#totalBodegas').text(response.data.estadisticas.total_bodegas || 0);
+                    $('#valorInventario').text('$' + (response.data.estadisticas.valor_inventario ? parseFloat(response.data.estadisticas.valor_inventario).toLocaleString('es-CO', {minimumFractionDigits: 2}) : '0.00'));
+                    $('#movimientosHoy').text(response.data.estadisticas.movimientos_ultimo_mes || 0);
+                } else {
+                    // En caso de error en estructura, mostrar valores por defecto
+                    $('#totalProductos').text('0');
+                    $('#totalBodegas').text('0');
+                    $('#valorInventario').text('$0.00');
+                    $('#movimientosHoy').text('0');
                 }
             })
             .fail(function() {
-                // Fail silently
+                // En caso de error, mostrar valores por defecto
+                $('#totalProductos').text('0');
+                $('#totalBodegas').text('0');
+                $('#valorInventario').text('$0.00');
+                $('#movimientosHoy').text('0');
             });
-
-        // Simular otras estadísticas - en producción vendrían de endpoints específicos
-        $('#valorInventario').text('$0.00');
-        $('#movimientosHoy').text('0');
     }
 
     function reporteStockBajo() {
@@ -261,6 +270,34 @@
     
     .card-header {
         border-radius: 10px 10px 0 0;
+    }
+    
+    .card-header.bg-primary,
+    .card-header.bg-success,
+    .card-header.bg-info {
+        color: white !important;
+    }
+    
+    .card-header.bg-primary h5,
+    .card-header.bg-success h5,
+    .card-header.bg-info h5,
+    .card-header.bg-primary i,
+    .card-header.bg-success i,
+    .card-header.bg-info i {
+        color: white !important;
+    }
+    
+    /* Forzar texto blanco en headers con fondo coloreado */
+    .bg-primary.text-white,
+    .bg-success.text-white,
+    .bg-info.text-white {
+        color: #ffffff !important;
+    }
+    
+    .bg-primary.text-white *,
+    .bg-success.text-white *,
+    .bg-info.text-white * {
+        color: #ffffff !important;
     }
     
     .card {

@@ -239,7 +239,7 @@
                 },
                 { data: 'fecha' },
                 { 
-                    data: 'concepto',
+                    data: 'descripcion',
                     render: function(data, type, row) {
                         if (data && data.length > 50) {
                             return `<span title="${data}">${data.substring(0, 50)}...</span>`;
@@ -248,17 +248,25 @@
                     }
                 },
                 { 
-                    data: 'total_debito',
+                    data: 'total_debe',
                     className: 'text-end',
                     render: function(data, type, row) {
-                        return `<span class="text-success fw-bold">$${data}</span>`;
+                        const value = parseFloat(data || 0).toLocaleString('es-ES', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                        });
+                        return `<span class="text-success fw-bold">$${value}</span>`;
                     }
                 },
                 { 
-                    data: 'total_credito',
+                    data: 'total_haber',
                     className: 'text-end',
                     render: function(data, type, row) {
-                        return `<span class="text-danger fw-bold">$${data}</span>`;
+                        const value = parseFloat(data || 0).toLocaleString('es-ES', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                        });
+                        return `<span class="text-danger fw-bold">$${value}</span>`;
                     }
                 },
                 { 
@@ -271,20 +279,31 @@
                     }
                 },
                 { 
-                    data: 'tipo_movimiento',
+                    data: 'descripcion',
                     render: function(data, type, row) {
                         if (!data) return '-';
                         
-                        let badgeClass = '';
-                        switch(data.toLowerCase()) {
-                            case 'entrada': badgeClass = 'bg-success'; break;
-                            case 'salida': badgeClass = 'bg-danger'; break;
-                            case 'ajuste': badgeClass = 'bg-warning'; break;
-                            case 'transferencia': badgeClass = 'bg-info'; break;
-                            default: badgeClass = 'bg-secondary';
+                        // Extraer el tipo de movimiento de la descripción
+                        let tipoMovimiento = '';
+                        let badgeClass = 'bg-secondary';
+                        
+                        if (data.includes('entrada')) {
+                            tipoMovimiento = 'Entrada';
+                            badgeClass = 'bg-success';
+                        } else if (data.includes('salida')) {
+                            tipoMovimiento = 'Salida';
+                            badgeClass = 'bg-danger';
+                        } else if (data.includes('ajuste')) {
+                            tipoMovimiento = 'Ajuste';
+                            badgeClass = 'bg-warning';
+                        } else if (data.includes('transferencia')) {
+                            tipoMovimiento = 'Transferencia';
+                            badgeClass = 'bg-info';
+                        } else {
+                            tipoMovimiento = 'Otro';
                         }
                         
-                        return `<span class="badge ${badgeClass}">${data}</span>`;
+                        return `<span class="badge ${badgeClass}">${tipoMovimiento}</span>`;
                     }
                 },
                 {
@@ -349,8 +368,13 @@
         let totalCreditos = 0;
         
         data.forEach(function(asiento) {
-            totalDebitos += parseFloat(asiento.total_debito.replace(/[,$]/g, ''));
-            totalCreditos += parseFloat(asiento.total_credito.replace(/[,$]/g, ''));
+            // Los campos del API son total_debe y total_haber, no total_debito y total_credito
+            if (asiento.total_debe) {
+                totalDebitos += parseFloat(asiento.total_debe.toString().replace(/[,$]/g, ''));
+            }
+            if (asiento.total_haber) {
+                totalCreditos += parseFloat(asiento.total_haber.toString().replace(/[,$]/g, ''));
+            }
         });
         
         $('#totalAsientos').text(data.length.toLocaleString());
@@ -413,18 +437,225 @@
     function verDetalleAsiento(asientoId) {
         showLoading();
         
-        // TODO: Implementar endpoint para obtener detalle del asiento
-        setTimeout(function() {
-            hideLoading();
-            $('#detalleAsientoContent').html(`
-                <div class="alert alert-info">
-                    <h6>Asiento #${asientoId}</h6>
-                    <p>Detalle del asiento contable en desarrollo...</p>
-                    <p>Aquí se mostrarían todas las partidas (débitos y créditos) del asiento.</p>
-                </div>
-            `);
-            $('#detalleAsientoModal').modal('show');
-        }, 500);
+        $.get(`{{ url('/reportes/asientos') }}/${asientoId}/detalle`)
+            .done(function(response) {
+                if (response.success) {
+                    const asiento = response.data.asiento;
+                    const cuentas = response.data.cuentas;
+                    const productos = response.data.productos;
+                    
+                    let htmlContent = `
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <strong>Número:</strong> ${asiento.numero}<br>
+                                <strong>Fecha:</strong> ${asiento.fecha}<br>
+                                <strong>Estado:</strong> <span class="badge bg-success">${asiento.estado}</span>
+                            </div>
+                            <div class="col-md-6">
+                                <strong>Total Debe:</strong> $${parseFloat(asiento.total_debe).toLocaleString('es-ES', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2
+                                })}<br>
+                                <strong>Total Haber:</strong> $${parseFloat(asiento.total_haber).toLocaleString('es-ES', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2
+                                })}
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <strong>Descripción:</strong><br>
+                            <p class="text-muted">${asiento.descripcion}</p>
+                        </div>
+                    `;
+                    
+                    // Mostrar las cuentas contables del asiento
+                    if (cuentas && cuentas.length > 0) {
+                        htmlContent += `
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <h6 class="mb-0"><i class="fas fa-calculator"></i> Cuentas Contables</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="table-responsive">
+                                        <table class="table table-sm table-striped">
+                                            <thead>
+                                                <tr>
+                                                    <th>Cuenta</th>
+                                                    <th>Concepto</th>
+                                                    <th class="text-end">Debe</th>
+                                                    <th class="text-end">Haber</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                        `;
+                        
+                        cuentas.forEach(function(cuenta) {
+                            const debe = cuenta.debe && parseFloat(cuenta.debe) > 0 ? 
+                                parseFloat(cuenta.debe).toLocaleString('es-ES', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2
+                                }) : '-';
+                            
+                            const haber = cuenta.haber && parseFloat(cuenta.haber) > 0 ? 
+                                parseFloat(cuenta.haber).toLocaleString('es-ES', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2
+                                }) : '-';
+                            
+                            // Definir color del badge según el tipo de cuenta
+                            let tipoBadgeClass = 'bg-secondary';
+                            switch(cuenta.cuenta_tipo) {
+                                case 'activo': tipoBadgeClass = 'bg-success'; break;
+                                case 'pasivo': tipoBadgeClass = 'bg-danger'; break;
+                                case 'patrimonio': tipoBadgeClass = 'bg-primary'; break;
+                                case 'ingreso': tipoBadgeClass = 'bg-info'; break;
+                                case 'gasto': tipoBadgeClass = 'bg-warning'; break;
+                            }
+                            
+                            htmlContent += `
+                                <tr>
+                                    <td>
+                                        <strong>${cuenta.cuenta_codigo}</strong><br>
+                                        <small class="text-muted">${cuenta.cuenta_nombre}</small><br>
+                                        <span class="badge ${tipoBadgeClass} badge-sm">${cuenta.cuenta_tipo.toUpperCase()}</span>
+                                    </td>
+                                    <td>${cuenta.concepto || '-'}</td>
+                                    <td class="text-end ${cuenta.debe && parseFloat(cuenta.debe) > 0 ? 'text-success fw-bold' : ''}">${debe !== '-' ? '$' + debe : '-'}</td>
+                                    <td class="text-end ${cuenta.haber && parseFloat(cuenta.haber) > 0 ? 'text-danger fw-bold' : ''}">${haber !== '-' ? '$' + haber : '-'}</td>
+                                </tr>
+                            `;
+                        });
+                        
+                        htmlContent += `
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    // Mostrar información del movimiento si existe
+                    if (asiento.movimiento_id) {
+                        htmlContent += `
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <h6 class="mb-0"><i class="fas fa-exchange-alt"></i> Información del Movimiento de Inventario</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <strong>Tipo:</strong> ${asiento.tipo_movimiento || 'N/A'}<br>
+                                            <strong>Movimiento ID:</strong> ${asiento.movimiento_id}
+                                        </div>
+                                        <div class="col-md-6">
+                        `;
+                        
+                        if (asiento.bodega_origen_nombre) {
+                            htmlContent += `<strong>Bodega Origen:</strong> ${asiento.bodega_origen_nombre}<br>`;
+                        }
+                        if (asiento.bodega_destino_nombre) {
+                            htmlContent += `<strong>Bodega Destino:</strong> ${asiento.bodega_destino_nombre}<br>`;
+                        }
+                        
+                        htmlContent += `
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    // Mostrar detalles de productos si existen
+                    if (productos && productos.length > 0) {
+                        htmlContent += `
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <h6 class="mb-0"><i class="fas fa-boxes"></i> Productos del Movimiento</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="table-responsive">
+                                        <table class="table table-sm table-striped">
+                                            <thead>
+                                                <tr>
+                                                    <th>Producto</th>
+                                                    <th class="text-end">Cantidad</th>
+                                                    <th class="text-end">Costo Unitario</th>
+                                                    <th class="text-end">Total</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                        `;
+                        
+                        productos.forEach(function(producto) {
+                            const cantidad = parseFloat(producto.cantidad).toLocaleString('es-ES', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
+                            });
+                            
+                            const costoUnitario = parseFloat(producto.costo_unitario).toLocaleString('es-ES', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
+                            });
+                            
+                            const total = parseFloat(producto.total).toLocaleString('es-ES', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
+                            });
+                            
+                            htmlContent += `
+                                <tr>
+                                    <td>
+                                        <strong>${producto.sku}</strong><br>
+                                        <small class="text-muted">${producto.producto_nombre}</small>
+                                    </td>
+                                    <td class="text-end">${cantidad}</td>
+                                    <td class="text-end">$${costoUnitario}</td>
+                                    <td class="text-end fw-bold">$${total}</td>
+                                </tr>
+                            `;
+                        });
+                        
+                        htmlContent += `
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    // Si no hay cuentas ni productos
+                    if ((!cuentas || cuentas.length === 0) && (!productos || productos.length === 0)) {
+                        htmlContent += `
+                            <div class="alert alert-info">
+                                <i class="fas fa-info-circle"></i>
+                                Este asiento no tiene detalles de cuentas contables o productos asociados.
+                            </div>
+                        `;
+                    }
+                    
+                    htmlContent += `
+                        <div class="mt-3 text-center">
+                            <button class="btn btn-primary" onclick="imprimirAsiento(${asientoId})">
+                                <i class="fas fa-print"></i> Imprimir Asiento
+                            </button>
+                        </div>
+                    `;
+                    
+                    $('#detalleAsientoContent').html(htmlContent);
+                    $('#detalleAsientoModal').modal('show');
+                } else {
+                    showNotification('Error al cargar detalle del asiento', 'error');
+                }
+            })
+            .fail(function() {
+                showNotification('Error de conexión al obtener detalle del asiento', 'error');
+            })
+            .always(function() {
+                hideLoading();
+            });
     }
 
     function verMovimientoOrigen(movimientoId) {
@@ -444,12 +675,219 @@
         }, 500);
     }
 
-    function imprimirAsiento() {
-        showToast('Funcionalidad de impresión en desarrollo', 'info');
+    function imprimirAsiento(asientoId) {
+        // Obtener el contenido del modal para imprimir
+        const contenido = document.getElementById('detalleAsientoContent').innerHTML;
+        
+        // Crear ventana de impresión
+        const ventanaImpresion = window.open('', 'PRINT', 'height=600,width=800');
+        
+        ventanaImpresion.document.write(`
+            <html>
+                <head>
+                    <title>Asiento Contable - Detalle</title>
+                    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+                    <style>
+                        @media print {
+                            .btn { display: none !important; }
+                            body { font-size: 12px; }
+                            .table { border-collapse: collapse; }
+                            .table th, .table td { border: 1px solid #000 !important; }
+                        }
+                        body { font-family: Arial, sans-serif; margin: 20px; }
+                        .header { text-align: center; margin-bottom: 30px; }
+                        .company-name { font-size: 18px; font-weight: bold; }
+                        .report-title { font-size: 16px; margin-top: 10px; }
+                    </style>
+                </head>
+                <body>
+                    <div class="header">
+                        <div class="company-name">Sistema de Inventario</div>
+                        <div class="report-title">Detalle del Asiento Contable</div>
+                        <div class="small text-muted">Generado el: ${new Date().toLocaleDateString('es-ES')} ${new Date().toLocaleTimeString('es-ES')}</div>
+                    </div>
+                    <div class="content">
+                        ${contenido}
+                    </div>
+                </body>
+            </html>
+        `);
+        
+        ventanaImpresion.document.close();
+        ventanaImpresion.focus();
+        
+        // Imprimir automáticamente
+        setTimeout(function() {
+            ventanaImpresion.print();
+            ventanaImpresion.close();
+        }, 250);
     }
 
     function imprimirAsientoDirecto(asientoId) {
-        showToast('Funcionalidad de impresión en desarrollo', 'info');
+        // Cargar los datos del asiento y luego imprimir
+        $.get(`{{ url('/reportes/asientos') }}/${asientoId}/detalle`)
+            .done(function(response) {
+                if (response.success) {
+                    // Simular que el modal se llena con los datos
+                    const asiento = response.data.asiento;
+                    const cuentas = response.data.cuentas;
+                    const productos = response.data.productos;
+                    
+                    let htmlContent = `
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <strong>Número:</strong> ${asiento.numero}<br>
+                                <strong>Fecha:</strong> ${asiento.fecha}<br>
+                                <strong>Estado:</strong> <span class="badge bg-success">${asiento.estado}</span>
+                            </div>
+                            <div class="col-md-6">
+                                <strong>Total Debe:</strong> $${parseFloat(asiento.total_debe).toLocaleString('es-ES', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2
+                                })}<br>
+                                <strong>Total Haber:</strong> $${parseFloat(asiento.total_haber).toLocaleString('es-ES', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2
+                                })}
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <strong>Descripción:</strong><br>
+                            <p class="text-muted">${asiento.descripcion}</p>
+                        </div>
+                    `;
+                    
+                    // Mostrar información del movimiento si existe
+                    if (asiento.movimiento_id) {
+                        htmlContent += `
+                            <div class="card mb-3">
+                                <div class="card-header">
+                                    <h6 class="mb-0">Información del Movimiento de Inventario</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <strong>Tipo:</strong> ${asiento.tipo_movimiento || 'N/A'}<br>
+                                            <strong>Movimiento ID:</strong> ${asiento.movimiento_id}
+                                        </div>
+                                        <div class="col-md-6">
+                        `;
+                        
+                        if (asiento.bodega_origen_nombre) {
+                            htmlContent += `<strong>Bodega Origen:</strong> ${asiento.bodega_origen_nombre}<br>`;
+                        }
+                        if (asiento.bodega_destino_nombre) {
+                            htmlContent += `<strong>Bodega Destino:</strong> ${asiento.bodega_destino_nombre}<br>`;
+                        }
+                        
+                        htmlContent += `
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    
+                    // Mostrar detalles de productos si existen
+                    if (detalles && detalles.length > 0) {
+                        htmlContent += `
+                            <div class="table-responsive">
+                                <table class="table table-sm table-striped">
+                                    <thead>
+                                        <tr>
+                                            <th>Producto</th>
+                                            <th class="text-end">Cantidad</th>
+                                            <th class="text-end">Costo Unitario</th>
+                                            <th class="text-end">Total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                        `;
+                        
+                        detalles.forEach(function(detalle) {
+                            const cantidad = parseFloat(detalle.cantidad).toLocaleString('es-ES', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
+                            });
+                            
+                            const costoUnitario = parseFloat(detalle.costo_unitario).toLocaleString('es-ES', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
+                            });
+                            
+                            const total = parseFloat(detalle.total).toLocaleString('es-ES', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2
+                            });
+                            
+                            htmlContent += `
+                                <tr>
+                                    <td>
+                                        <strong>${detalle.sku}</strong><br>
+                                        <small class="text-muted">${detalle.producto_nombre}</small>
+                                    </td>
+                                    <td class="text-end">${cantidad}</td>
+                                    <td class="text-end">$${costoUnitario}</td>
+                                    <td class="text-end fw-bold">$${total}</td>
+                                </tr>
+                            `;
+                        });
+                        
+                        htmlContent += `
+                                    </tbody>
+                                </table>
+                            </div>
+                        `;
+                    }
+                    
+                    // Crear ventana de impresión directamente
+                    const ventanaImpresion = window.open('', 'PRINT', 'height=600,width=800');
+                    
+                    ventanaImpresion.document.write(`
+                        <html>
+                            <head>
+                                <title>Asiento Contable - ${asiento.numero}</title>
+                                <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+                                <style>
+                                    @media print {
+                                        body { font-size: 12px; }
+                                        .table { border-collapse: collapse; }
+                                        .table th, .table td { border: 1px solid #000 !important; }
+                                    }
+                                    body { font-family: Arial, sans-serif; margin: 20px; }
+                                    .header { text-align: center; margin-bottom: 30px; }
+                                    .company-name { font-size: 18px; font-weight: bold; }
+                                    .report-title { font-size: 16px; margin-top: 10px; }
+                                </style>
+                            </head>
+                            <body>
+                                <div class="header">
+                                    <div class="company-name">Sistema de Inventario</div>
+                                    <div class="report-title">Detalle del Asiento Contable</div>
+                                    <div class="small text-muted">Generado el: ${new Date().toLocaleDateString('es-ES')} ${new Date().toLocaleTimeString('es-ES')}</div>
+                                </div>
+                                <div class="content">
+                                    ${htmlContent}
+                                </div>
+                            </body>
+                        </html>
+                    `);
+                    
+                    ventanaImpresion.document.close();
+                    ventanaImpresion.focus();
+                    
+                    setTimeout(function() {
+                        ventanaImpresion.print();
+                        ventanaImpresion.close();
+                    }, 250);
+                } else {
+                    showNotification('Error al cargar datos para impresión', 'error');
+                }
+            })
+            .fail(function() {
+                showNotification('Error de conexión al cargar datos para impresión', 'error');
+            });
     }
 </script>
 
