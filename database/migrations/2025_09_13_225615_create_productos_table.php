@@ -16,6 +16,7 @@ return new class extends Migration
             $table->string('sku', 50)->index('idx_productos_sku');
             $table->string('nombre', 200);
             $table->text('descripcion')->nullable();
+
             $table->unsignedBigInteger('unidad_id')->index('fk_prod_unidad');
             $table->unsignedBigInteger('categoria_id')->index('idx_productos_categoria');
             $table->decimal('precio_compra_promedio', 12, 4)->nullable()->default(0);

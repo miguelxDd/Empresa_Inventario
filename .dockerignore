@@ -1,0 +1,17 @@
+# Ignorar archivos temporales de Docker
+.docker/
+docker-data/
+
+# Ignorar logs específicos de Docker
+storage/logs/docker.log
+
+# Ignorar archivos de backup de base de datos
+*.sql
+backup_*.sql
+
+# Ignorar archivos de configuración local de Docker
+.env.local
+docker-compose.override.yml
+
+# Archivos específicos de desarrollo
+.vscode/settings.json
