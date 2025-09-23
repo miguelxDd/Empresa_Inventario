@@ -61,9 +61,19 @@ WORKDIR /var/www
 # Copiar archivos existentes de la aplicación
 COPY --chown=$user:$user . /var/www
 
+# Configurar git safe directory y permisos antes de composer
+RUN git config --global --add safe.directory /var/www
+RUN chown -R $user:$user /var/www
+
+# Crear directorio vendor con permisos correctos
+RUN mkdir -p /var/www/vendor && chown -R $user:$user /var/www/vendor
+
 # Instalar dependencias de Composer
 USER $user
-RUN composer install --no-dev --optimize-autoloader
+RUN composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
+
+# Verificar que vendor fue creado correctamente
+RUN ls -la /var/www/vendor || echo "Vendor directory not found!"
 
 # Instalar dependencias de Node.js y compilar assets
 RUN npm install && npm run build
